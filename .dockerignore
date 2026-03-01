@@ -1,0 +1,47 @@
+----------------------------------------------------------------------
+
+Ficheiros de controlo de versão e ambiente
+
+----------------------------------------------------------------------
+
+.git
+.gitignore
+.env
+README.md
+
+----------------------------------------------------------------------
+
+Ambientes Virtuais e dependências locais
+
+----------------------------------------------------------------------
+
+venv/
+env/
+.venv/
+pycache/
+*.py[cod]
+*$py.class
+
+----------------------------------------------------------------------
+
+Dados Dinâmicos e Índices
+
+----------------------------------------------------------------------
+
+Como o docker-compose faz o mapeamento através de 'volumes: - .:/app',
+
+não precisamos (nem devemos) copiar as bases de dados e ficheiros
+
+processados para dentro da IMAGEM BASE do Docker.
+
+data/processed/*
+data/index/*
+
+----------------------------------------------------------------------
+
+Ficheiros do Sistema Operativo
+
+----------------------------------------------------------------------
+
+.DS_Store
+Thumbs.db

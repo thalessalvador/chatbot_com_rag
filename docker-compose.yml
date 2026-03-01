@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  # 1. Serviço principal: Interface do Chatbot (Streamlit)
+  chatbot:
+    build: .
+    container_name: rag_chatbot_app
+    ports:
+      - "8501:8501"
+    volumes:
+      - .:/app
+    environment:
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - ANONYMIZED_TELEMETRY=False
+    command: streamlit run app/app.py --server.address=0.0.0.0
+    profiles: ["app"]
+
+  # 2. Serviço para Ingestão e Chunking
+  ingest:
+    build: .
+    container_name: rag_ingest
+    volumes:
+      - .:/app
+    environment:
+      - ANONYMIZED_TELEMETRY=False
+    command: python src/pipeline.py --step ingest
+    profiles: ["setup"]
+
+  # 3. Serviço para Indexação (Dense + Sparse)
+  index:
+    build: .
+    container_name: rag_index
+    volumes:
+      - .:/app
+    environment:
+      - ANONYMIZED_TELEMETRY=False
+    command: python src/pipeline.py --step index
+    profiles: ["setup"]
+
+  # 4. Serviço para Avaliação (Recall@k)
+  evaluate:
+    build: .
+    container_name: rag_evaluate
+    volumes:
+      - .:/app
+    environment:
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - ANONYMIZED_TELEMETRY=False
+    command: python src/pipeline.py --step evaluate
+    profiles: ["eval"]

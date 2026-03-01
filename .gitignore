@@ -1,0 +1,55 @@
+----------------------------------------------------------------------
+
+Variáveis de Ambiente e Segredos (MUITO IMPORTANTE)
+
+----------------------------------------------------------------------
+
+.env
+
+----------------------------------------------------------------------
+
+Python / Ambientes Virtuais
+
+----------------------------------------------------------------------
+
+pycache/
+*.py[cod]
+*$py.class
+*.so
+venv/
+env/
+.venv/
+Pipfile.lock
+
+----------------------------------------------------------------------
+
+Dados e Índices (Ficheiros grandes ou gerados localmente)
+
+----------------------------------------------------------------------
+
+Ignoramos o conteúdo das pastas, mas não as pastas em si se usarmos .gitkeep lá dentro
+
+data/raw/.csv
+data/processed/.json
+data/index/*
+!data/index/.gitkeep
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+----------------------------------------------------------------------
+
+Ficheiros do Sistema Operativo
+
+----------------------------------------------------------------------
+
+.DS_Store
+Thumbs.db
+
+----------------------------------------------------------------------
+
+Streamlit e Logs
+
+----------------------------------------------------------------------
+
+.streamlit/
+*.log
