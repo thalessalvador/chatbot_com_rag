@@ -1,0 +1,49 @@
+llm:
+  provider: ollama
+  google_model: gemini-2.5-flash
+  google_temperature: 0.0
+  ollama_model: ministral-3:14b
+  ollama_base_url: http://localhost:11434
+  ollama_temperature: 0.0
+  ollama_num_ctx: 3072
+  ollama_num_predict: 2048
+  ollama_num_gpu: 9999
+  ollama_num_thread: 0
+  ollama_keep_alive: 30m
+
+embeddings:
+  model: all-mpnet-base-v2
+  device: cuda
+  batch_size: 64
+
+retrieval:
+  top_k: 5
+  rrf_k: 60
+  chroma_add_batch_size: 512
+
+scraping:
+  base_url: https://appasp.economia.go.gov.br/pareceres/
+  max_docs: 10
+  timeout_seconds: 30
+  user_agent: chatbot-rag-scraper/1.0
+  delay_min_seconds: 3
+  delay_max_seconds: 10
+  clean_raw_on_start: true
+
+transform:
+  clean_output_on_start: true
+  normalize_legal_headings: true
+  libreoffice_cmd: soffice
+
+legal_chunking:
+  max_tokens: 700
+  overlap_tokens: 140
+
+logging:
+  level: INFO
+  file: logs/app.log
+  max_bytes: 5242880
+  backup_count: 5
+
+ui:
+  show_progress: true

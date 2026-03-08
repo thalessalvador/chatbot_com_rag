@@ -3,6 +3,11 @@ streamlit==1.32.0
 pandas==2.2.1
 numpy==1.26.4
 python-dotenv==1.0.1
+PyYAML==6.0.3
+requests==2.32.5
+beautifulsoup4==4.12.3
+markitdown[all]==0.1.1
+python-docx==1.1.2
 
 langchain-ollama==0.2.3
 langchain-text-splitters==0.3.6

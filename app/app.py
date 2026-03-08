@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from src.rag_core import HybridRAG
+from src.app_config import get_config_value
 from src.logging_config import get_logger
 
 load_dotenv()
@@ -27,9 +28,12 @@ def _get_int_env(var_name, default_value):
     int
         Valor inteiro válido para uso na configuração.
     """
+    mapping = {
+        "RETRIEVAL_TOP_K": "retrieval.top_k",
+    }
     try:
-        return int(os.getenv(var_name, str(default_value)))
-    except ValueError:
+        return int(get_config_value(mapping.get(var_name, ""), default_value))
+    except (TypeError, ValueError):
         return default_value
 
 st.set_page_config(page_title="Chatbot Tributário - Projeto Final", page_icon="⚖️", layout="centered")
@@ -73,18 +77,18 @@ st.sidebar.header("Configuração do LLM")
 llm_provider = st.sidebar.selectbox(
     "Provedor",
     options=["google", "ollama"],
-    index=0 if os.getenv("LLM_PROVIDER", "google").lower() == "google" else 1
+    index=0 if str(get_config_value("llm.provider", "google")).lower() == "google" else 1
 )
 
 default_model = (
-    os.getenv("GOOGLE_MODEL", "gemini-2.5-flash")
+    get_config_value("llm.google_model", "gemini-2.5-flash")
     if llm_provider == "google"
-    else os.getenv("OLLAMA_MODEL", "llama3.1:8b")
+    else get_config_value("llm.ollama_model", "llama3.1:8b")
 )
 llm_model = st.sidebar.text_input("Modelo", value=default_model)
 ollama_base_url = st.sidebar.text_input(
     "Ollama Base URL",
-    value=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+    value=get_config_value("llm.ollama_base_url", "http://localhost:11434"),
     disabled=llm_provider != "ollama"
 )
 
@@ -134,8 +138,24 @@ if prompt := st.chat_input("Digite sua pergunta sobre tributação..."):
                     with st.expander("🔍 Ver Trechos Recuperados (Transparência)"):
                         if retrieved_chunks:
                             for idx, chunk in enumerate(retrieved_chunks):
-                                st.markdown(f"**Trecho {idx+1} (ID: `{chunk['chunk_id']}`)**")
-                                st.markdown(f"**Fonte:** {chunk['metadados']['fonte']}")
+                                metadados = chunk.get("metadados", {})
+                                titulo = metadados.get("titulo", "Documento sem título")
+                                fonte = metadados.get("fonte", "")
+                                chunk_id = chunk.get("chunk_id", "N/A")
+
+                                st.markdown(f"**Trecho {idx+1}**")
+                                if fonte:
+                                    st.markdown(
+                                        (
+                                            f"<strong>Documento:</strong> "
+                                            f"<a href=\"{fonte}\" target=\"_blank\" rel=\"noopener noreferrer\">"
+                                            f"{titulo} ↗</a> "
+                                            f"| <strong>ID:</strong> <code>{chunk_id}</code>"
+                                        ),
+                                        unsafe_allow_html=True,
+                                    )
+                                else:
+                                    st.markdown(f"**Documento:** {titulo} | **ID:** `{chunk_id}`")
                                 st.info(chunk['texto'])
                         else:
                             st.write("Nenhum trecho relevante encontrado.")

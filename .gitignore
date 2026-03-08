@@ -29,12 +29,7 @@ Dados e Índices (Ficheiros grandes ou gerados localmente)
 
 Ignoramos o conteúdo das pastas, mas não as pastas em si se usarmos .gitkeep lá dentro
 
-data/raw/.csv
-data/processed/.json
-data/index/*
-!data/index/.gitkeep
-!data/raw/.gitkeep
-!data/processed/.gitkeep
+data/
 
 ----------------------------------------------------------------------
 
@@ -64,3 +59,4 @@ Artefatos locais de trabalho (fora do versionamento)
 notebook_base/
 feedback perguntas/
 feedback_perguntas/
+docs/

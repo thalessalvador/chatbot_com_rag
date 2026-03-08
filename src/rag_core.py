@@ -1,13 +1,21 @@
 import json
 import pickle
-import chromadb
 import os
+
+# Desativa telemetria do Chroma de forma explícita para evitar logs de PostHog.
+os.environ.setdefault("ANONYMIZED_TELEMETRY", "FALSE")
+
+import chromadb
+import re
+from chromadb.config import Settings
 from sentence_transformers import SentenceTransformer
 import nltk
 from dotenv import load_dotenv
 try:
+    from src.app_config import get_config_value
     from src.logging_config import get_logger
 except ImportError:
+    from app_config import get_config_value
     from logging_config import get_logger
 
 # FIX: Garante que os pacotes de tokenização do NLTK são descarregados no contentor do chatbot
@@ -35,9 +43,17 @@ def _get_int_env(var_name, default_value):
     int
         Valor inteiro válido para uso na configuração.
     """
+    mapping = {
+        "RRF_K": "retrieval.rrf_k",
+        "RETRIEVAL_TOP_K": "retrieval.top_k",
+        "OLLAMA_NUM_CTX": "llm.ollama_num_ctx",
+        "OLLAMA_NUM_PREDICT": "llm.ollama_num_predict",
+        "OLLAMA_NUM_GPU": "llm.ollama_num_gpu",
+        "OLLAMA_NUM_THREAD": "llm.ollama_num_thread",
+    }
     try:
-        return int(os.getenv(var_name, str(default_value)))
-    except ValueError:
+        return int(get_config_value(mapping.get(var_name, ""), default_value))
+    except (TypeError, ValueError):
         return default_value
 
 def _get_float_env(var_name, default_value):
@@ -55,9 +71,13 @@ def _get_float_env(var_name, default_value):
     float
         Valor numérico válido para uso na configuração.
     """
+    mapping = {
+        "GOOGLE_TEMPERATURE": "llm.google_temperature",
+        "OLLAMA_TEMPERATURE": "llm.ollama_temperature",
+    }
     try:
-        return float(os.getenv(var_name, str(default_value)))
-    except ValueError:
+        return float(get_config_value(mapping.get(var_name, ""), default_value))
+    except (TypeError, ValueError):
         return default_value
 
 def _resolve_embedding_device(requested_device):
@@ -86,6 +106,25 @@ def _resolve_embedding_device(requested_device):
 
     logger.warning("EMBEDDING_DEVICE=cuda, mas PyTorch sem CUDA. Usando CPU.")
     return "cpu"
+
+
+def _safe_tokenize(text):
+    """Tokeniza texto com fallback sem dependência de recursos externos.
+
+    Parameters
+    ----------
+    text : str
+        Texto de entrada para tokenização.
+
+    Returns
+    -------
+    list[str]
+        Lista de tokens normalizados.
+    """
+    try:
+        return nltk.word_tokenize(text)
+    except Exception:
+        return re.findall(r"\w+", text, flags=re.UNICODE)
 
 class HybridRAG:
     """Orquestra o fluxo RAG híbrido (Dense + Sparse) e a geração de respostas.
@@ -127,10 +166,13 @@ class HybridRAG:
             Construtor da classe; inicializa atributos internos.
         """
         # Dense
-        self.chroma_client = chromadb.PersistentClient(path=chroma_path)
+        self.chroma_client = chromadb.PersistentClient(
+            path=chroma_path,
+            settings=Settings(anonymized_telemetry=False),
+        )
         self.collection = self.chroma_client.get_collection(name="pareceres_tributarios")
-        embedding_model_name = os.getenv("EMBEDDING_MODEL", "all-mpnet-base-v2")
-        embedding_device = os.getenv("EMBEDDING_DEVICE", "cpu")
+        embedding_model_name = get_config_value("embeddings.model", "all-mpnet-base-v2")
+        embedding_device = get_config_value("embeddings.device", "cpu")
         effective_embedding_device = _resolve_embedding_device(embedding_device)
         self.rrf_k = _get_int_env("RRF_K", 60)
         self.default_top_k = _get_int_env("RETRIEVAL_TOP_K", 5)
@@ -142,7 +184,7 @@ class HybridRAG:
             self.bm25 = data['bm25']
             self.chunks_data = data['chunks']
 
-        provider = (llm_provider or os.getenv("LLM_PROVIDER", "google")).strip().lower()
+        provider = (llm_provider or get_config_value("llm.provider", "google")).strip().lower()
         self.llm_provider = provider
 
         if provider == "google":
@@ -152,18 +194,18 @@ class HybridRAG:
                 raise ImportError(
                     "Para usar LLM_PROVIDER=google, instale: pip install langchain-google-genai"
                 ) from exc
-            model_name = llm_model or os.getenv("GOOGLE_MODEL", "gemini-2.5-flash")
+            model_name = llm_model or get_config_value("llm.google_model", "gemini-2.5-flash")
             temperature = _get_float_env("GOOGLE_TEMPERATURE", 0.0)
             self.llm = ChatGoogleGenerativeAI(model=model_name, temperature=temperature)
         elif provider == "ollama":
-            model_name = llm_model or os.getenv("OLLAMA_MODEL", "llama3.1:8b")
-            base_url = ollama_base_url or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+            model_name = llm_model or get_config_value("llm.ollama_model", "llama3.1:8b")
+            base_url = ollama_base_url or get_config_value("llm.ollama_base_url", "http://localhost:11434")
             ollama_temperature = _get_float_env("OLLAMA_TEMPERATURE", 0.0)
             ollama_num_ctx = _get_int_env("OLLAMA_NUM_CTX", 2048)
             ollama_num_predict = _get_int_env("OLLAMA_NUM_PREDICT", 384)
             ollama_num_gpu = _get_int_env("OLLAMA_NUM_GPU", 1)
             ollama_num_thread = _get_int_env("OLLAMA_NUM_THREAD", 0)
-            ollama_keep_alive = os.getenv("OLLAMA_KEEP_ALIVE", "30m")
+            ollama_keep_alive = get_config_value("llm.ollama_keep_alive", "30m")
 
             self.llm = ChatOllama(
                 model=model_name,
@@ -209,7 +251,7 @@ class HybridRAG:
         dense_ids = dense_results['ids'][0]
         
         # 2. Recuperação Sparse (BM25)
-        tokenized_query = nltk.word_tokenize(query.lower())
+        tokenized_query = _safe_tokenize(query.lower())
         bm25_scores = self.bm25.get_scores(tokenized_query)
         # Pega os top K * 2 índices
         top_sparse_idx = sorted(range(len(bm25_scores)), key=lambda i: bm25_scores[i], reverse=True)[:top_k * 2]

@@ -1,10 +1,12 @@
 import logging
-import os
 import threading
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from dotenv import load_dotenv
+try:
+    from src.app_config import get_config_value
+except ImportError:
+    from app_config import get_config_value
 
 _INIT_LOCK = threading.Lock()
 _LOGGING_INITIALIZED = False
@@ -25,9 +27,13 @@ def _get_int_env(var_name, default_value):
     int
         Valor inteiro válido para uso na configuração.
     """
+    mapping = {
+        "LOG_MAX_BYTES": "logging.max_bytes",
+        "LOG_BACKUP_COUNT": "logging.backup_count",
+    }
     try:
-        return int(os.getenv(var_name, str(default_value)))
-    except ValueError:
+        return int(get_config_value(mapping.get(var_name, ""), default_value))
+    except (TypeError, ValueError):
         return default_value
 
 
@@ -39,7 +45,7 @@ def _resolve_log_level():
     int
         Nível de log do módulo `logging`.
     """
-    level_str = os.getenv("LOG_LEVEL", "INFO").strip().upper()
+    level_str = str(get_config_value("logging.level", "INFO")).strip().upper()
     return getattr(logging, level_str, logging.INFO)
 
 
@@ -57,10 +63,8 @@ def _initialize_logging():
         if _LOGGING_INITIALIZED:
             return
 
-        load_dotenv()
-
         log_level = _resolve_log_level()
-        log_file = os.getenv("LOG_FILE", "logs/app.log")
+        log_file = str(get_config_value("logging.file", "logs/app.log"))
         log_max_bytes = _get_int_env("LOG_MAX_BYTES", 5_242_880)
         log_backup_count = _get_int_env("LOG_BACKUP_COUNT", 5)
 

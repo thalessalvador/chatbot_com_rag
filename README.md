@@ -17,28 +17,59 @@ Este projeto deve ser executado com **Python 3.11**.
 
 ```text
 app/app.py                 # Interface Streamlit
-src/pipeline.py            # Ingestão e indexação
+src/pipeline.py            # Scraping, transformação, ingestão, indexação e avaliação
 src/rag_core.py            # Retriever híbrido + geração da resposta
-data/raw/                  # Entrada de documentos (CSV)
-data/processed/chunks.json # Saída da ingestão
+data/raw/                  # Arquivos originais (download do scraping)
+data/transformation/       # Arquivos transformados para Markdown
+data/processed/chunks.json # Chunks semânticos jurídicos
 data/index/                # Índices ChromaDB e BM25
 requirements.txt           # Dependências Python
-.env                       # Configuração de provedores e modelos
+config.yaml                # Configuração operacional versionada
+.env                       # Apenas segredos locais (ex.: GOOGLE_API_KEY)
+```
+
+## Configuração Atual (Importante)
+
+O projeto passou a usar `config.yaml` como fonte principal de configuração.
+
+- `config.yaml`: parâmetros de execução (LLM, embeddings, scraping, transform, logging).
+- `.env`: somente segredo (`GOOGLE_API_KEY`), quando `llm.provider: google`.
+
+Exemplo de `.env` mínimo:
+
+```env
+GOOGLE_API_KEY=sua_chave_google_aqui
 ```
 
 ## Como o fluxo funciona
 
-1. Ingestão (`python src/pipeline.py --step ingest`)
-- Lê o CSV bruto.
-- Gera chunks de texto (`chunk_size=1000`, `chunk_overlap=200`).
-- Salva em `data/processed/chunks.json`.
+1. Scraping (`python src/pipeline.py --step scraping`)
+- Coleta links de pareceres na página oficial.
+- Baixa documentos originais para `data/raw/`.
+- Registra trilha de execução em `data/raw/scraping_manifest.jsonl`.
+- Aplica atraso aleatório entre requisições para reduzir bloqueio anti-scraping.
 
-2. Indexação (`python src/pipeline.py --step index`)
+2. Transformação (`python src/pipeline.py --step transform`)
+- Converte arquivos brutos para Markdown usando MarkItDown.
+- Gera arquivos em `data/transformation/`.
+- Registra trilha de transformação em `data/transformation/transform_manifest.jsonl`.
+- Arquivos `.docx` têm fallback via `python-docx`.
+- Arquivos legados `.doc`, `.xls` e `.ppt` são convertidos automaticamente via LibreOffice (`soffice`) antes da transformação.
+- O projeto instala `markitdown[all]`, habilitando conversão nativa de mais formatos (incluindo `docx/xlsx/pptx`) quando suportados.
+
+3. Ingestão (`python src/pipeline.py --step ingest`)
+- Lê os arquivos Markdown transformados.
+- Segmenta por seções jurídicas (relatório, fundamentação, conclusão etc.).
+- Subdivide seções longas em subchunks por tokens.
+- Salva chunks em `data/processed/chunks.json`.
+- Exibe no log uma amostra aleatória de 10 chunks para checagem.
+
+4. Indexação (`python src/pipeline.py --step index`)
 - Gera embeddings com modelo configurado em `EMBEDDING_MODEL` no `.env`.
 - Cria índice vetorial no ChromaDB.
 - Cria índice BM25 para busca lexical.
 
-3. Consulta (`streamlit run app/app.py`)
+5. Consulta (`streamlit run app/app.py`)
 - Recupera candidatos dense + sparse.
 - Aplica RRF para ranking final.
 - Envia contexto ao LLM.
@@ -46,17 +77,14 @@ requirements.txt           # Dependências Python
 
 ## Entrada de documentos
 
-O projeto atual usa CSV em `data/raw/`.
+A entrada principal agora é automatizada via scraping da página:
+- `https://appasp.economia.go.gov.br/pareceres/`
 
-Arquivo padrão esperado:
-- `data/raw/rag_pareceres_resumo_geral_conclusao_202602131448.csv`
-
-Colunas utilizadas no pipeline:
-- `filename`: nome/título do documento;
-- `content`: texto completo;
-- `url_arquivo`: referência/fonte para metadados.
-
-Se quiser outro arquivo, altere `RAW_DATA_PATH` em `src/pipeline.py`.
+Artefatos gerados:
+- `data/raw/*` (arquivos originais)
+- `data/raw/scraping_manifest.jsonl`
+- `data/transformation/*.md`
+- `data/transformation/transform_manifest.jsonl`
 
 ## Configuração (.env)
 
@@ -67,6 +95,15 @@ LLM_PROVIDER=ollama
 OLLAMA_MODEL=ministral-3:14b
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_TEMPERATURE=0.0
+SCRAPING_BASE_URL=https://appasp.economia.go.gov.br/pareceres/
+SCRAPING_MAX_DOCS=100
+SCRAPING_TIMEOUT_SECONDS=30
+SCRAPING_USER_AGENT=chatbot-rag-scraper/1.0
+SCRAPING_DELAY_MIN_SECONDS=3
+SCRAPING_DELAY_MAX_SECONDS=10
+SCRAPING_CLEAN_RAW_ON_START=true
+TRANSFORM_CLEAN_OUTPUT_ON_START=true
+TRANSFORM_NORMALIZE_LEGAL_HEADINGS=true
 
 # Embeddings (retrieval)
 EMBEDDING_MODEL=all-mpnet-base-v2
@@ -78,6 +115,8 @@ CHUNK_OVERLAP=200
 SHOW_PROGRESS=true
 EMBEDDING_BATCH_SIZE=64
 CHROMA_ADD_BATCH_SIZE=512
+LEGAL_CHUNK_MAX_TOKENS=700
+LEGAL_CHUNK_OVERLAP_TOKENS=80
 
 # Para usar Google/Gemini, descomente e troque o provedor:
 # LLM_PROVIDER=google
@@ -135,6 +174,8 @@ Também são configuráveis no `.env`:
 - `SHOW_PROGRESS`: exibe barras de progresso na indexação.
 - `EMBEDDING_BATCH_SIZE`: tamanho de lote para gerar embeddings.
 - `CHROMA_ADD_BATCH_SIZE`: tamanho de lote para gravar no ChromaDB.
+- `TRANSFORM_CLEAN_OUTPUT_ON_START`: limpa `data/transformation` no início da etapa `transform`.
+- `TRANSFORM_NORMALIZE_LEGAL_HEADINGS`: padroniza headings jurídicos no Markdown (`RELATÓRIO`, `FUNDAMENTAÇÃO`, `CONCLUSÃO`).
 
 
 Quando alterar `CHUNK_SIZE` ou `CHUNK_OVERLAP`, rode novamente:
@@ -177,6 +218,36 @@ ollama list
 - Execução local (Streamlit fora do Docker): `OLLAMA_BASE_URL=http://localhost:11434`
 - Execução via Docker (app no container): `OLLAMA_BASE_URL=http://host.docker.internal:11434`
 
+## Conversão de formatos legados do Office
+
+Para converter formatos legados (`.doc`, `.xls`, `.ppt` e similares) durante a etapa de transformação,
+é necessário ter o **LibreOffice instalado na máquina que executa o pipeline**.
+
+- O pipeline usa o executável `soffice` em modo headless para conversão.
+- Sem LibreOffice, arquivos legados podem falhar na transformação para Markdown.
+- Você pode sobrescrever o comando com `LIBREOFFICE_CMD` no `.env` (padrão: `soffice`).
+
+Recomendação:
+- instalar LibreOffice e garantir que `soffice` esteja disponível no `PATH` do sistema.
+
+Como verificar no Windows (PowerShell):
+
+```powershell
+soffice --version
+where.exe soffice
+```
+
+Se o comando não for encontrado:
+1. Localize o executável do LibreOffice (exemplo comum):
+- `C:\Program Files\LibreOffice\program\soffice.exe`
+2. Adicione a pasta ao `PATH` do usuário/sistema:
+- `C:\Program Files\LibreOffice\program\`
+3. Feche e abra o terminal novamente e repita:
+
+```powershell
+soffice --version
+```
+
 ## Setup local (Windows / PowerShell)
 
 1. Criar e ativar ambiente virtual:
@@ -197,6 +268,8 @@ pip install -r requirements.txt
 3. Rodar pipeline e app:
 
 ```powershell
+python src/pipeline.py --step scraping
+python src/pipeline.py --step transform
 python src/pipeline.py --step ingest
 python src/pipeline.py --step index
 streamlit run app/app.py
@@ -248,25 +321,37 @@ EMBEDDING_MODEL=all-mpnet-base-v2
 EMBEDDING_DEVICE=cuda
 ```
 
-6. Executar ingestão:
+6. Executar scraping:
+
+```powershell
+python src/pipeline.py --step scraping
+```
+
+7. Executar transformação:
+
+```powershell
+python src/pipeline.py --step transform
+```
+
+8. Executar ingestão:
 
 ```powershell
 python src/pipeline.py --step ingest
 ```
 
-7. Executar indexação:
+9. Executar indexação:
 
 ```powershell
 python src/pipeline.py --step index
 ```
 
-8. Abrir o chatbot:
+10. Abrir o chatbot:
 
 ```powershell
 streamlit run app/app.py
 ```
 
-9. Acessar no navegador:
+11. Acessar no navegador:
 - `http://localhost:8501`
 
 ## Configuração de GPU (CUDA) vs CPU
