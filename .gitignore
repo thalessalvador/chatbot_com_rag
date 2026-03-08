@@ -53,3 +53,14 @@ Streamlit e Logs
 
 .streamlit/
 *.log
+logs/
+
+----------------------------------------------------------------------
+
+Artefatos locais de trabalho (fora do versionamento)
+
+----------------------------------------------------------------------
+
+notebook_base/
+feedback perguntas/
+feedback_perguntas/

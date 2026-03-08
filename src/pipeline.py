@@ -3,34 +3,128 @@ import pandas as pd
 import json
 import os
 import pickle
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from sentence_transformers import SentenceTransformer
 import chromadb
 from rank_bm25 import BM25Okapi
 import nltk
+from dotenv import load_dotenv
+from tqdm import tqdm
+try:
+    from src.logging_config import get_logger
+except ImportError:
+    from logging_config import get_logger
 
 nltk.download('punkt', quiet=True)
+load_dotenv()
+logger = get_logger(__name__)
 
 # Configurações de Caminhos
 RAW_DATA_PATH = "data/raw/rag_pareceres_resumo_geral_conclusao_202602131448.csv"
 CHUNKS_PATH = "data/processed/chunks.json"
 CHROMA_DB_DIR = "data/index/chroma_db"
 BM25_INDEX_PATH = "data/index/bm25_index.pkl"
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-mpnet-base-v2")
+EMBEDDING_DEVICE = os.getenv("EMBEDDING_DEVICE", "cpu")
+
+def _get_int_env(var_name, default_value):
+    """Lê uma variável de ambiente inteira com fallback seguro.
+
+    Parameters
+    ----------
+    var_name : str
+        Nome da variável de ambiente.
+    default_value : int
+        Valor padrão quando a variável não existe ou é inválida.
+
+    Returns
+    -------
+    int
+        Valor inteiro válido para uso na configuração.
+    """
+    try:
+        return int(os.getenv(var_name, str(default_value)))
+    except ValueError:
+        return default_value
+
+def _get_bool_env(var_name, default_value):
+    """Lê uma variável booleana de ambiente com fallback seguro.
+
+    Parameters
+    ----------
+    var_name : str
+        Nome da variável de ambiente.
+    default_value : bool
+        Valor padrão quando a variável não existe ou é inválida.
+
+    Returns
+    -------
+    bool
+        Valor booleano válido para uso na configuração.
+    """
+    raw = os.getenv(var_name)
+    if raw is None:
+        return default_value
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+def _resolve_embedding_device(requested_device):
+    """Resolve o dispositivo de embeddings com fallback seguro para CPU.
+
+    Parameters
+    ----------
+    requested_device : str
+        Dispositivo solicitado no ambiente (`cpu` ou `cuda`).
+
+    Returns
+    -------
+    str
+        Dispositivo efetivo para o SentenceTransformer.
+    """
+    device = (requested_device or "cpu").strip().lower()
+    if device != "cuda":
+        return "cpu"
+
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return "cuda"
+    except Exception:
+        pass
+
+    logger.warning("EMBEDDING_DEVICE=cuda, mas PyTorch sem CUDA. Usando CPU.")
+    return "cpu"
 
 def run_ingest():
-    """Etapa 1: Ingestão e Chunking"""
-    print("Iniciando Ingestão e Chunking...")
+    """Executa a etapa de ingestão e chunking dos documentos do corpus.
+
+    A função lê o CSV bruto, segmenta o conteúdo textual em chunks e grava
+    o resultado em JSON para uso nas etapas de indexação.
+
+    Parameters
+    ----------
+    None
+        Esta função não recebe parâmetros diretos; usa caminhos globais.
+
+    Returns
+    -------
+    None
+        Salva os chunks em arquivo e exibe logs no terminal.
+    """
+    logger.info("Iniciando Ingestão e Chunking...")
     
     if not os.path.exists(RAW_DATA_PATH):
-        print(f"Erro: Arquivo {RAW_DATA_PATH} não encontrado.")
+        logger.error("Arquivo de dados não encontrado: %s", RAW_DATA_PATH)
         return
 
     df = pd.read_csv(RAW_DATA_PATH)
     
-    # Text Splitter: 1000 caracteres, 200 de overlap para manter contexto tributário
+    chunk_size = _get_int_env("CHUNK_SIZE", 1000)
+    chunk_overlap = _get_int_env("CHUNK_OVERLAP", 200)
+
+    # Text Splitter configurável por ambiente para ajuste de contexto.
     text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1000,
-        chunk_overlap=200,
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
         length_function=len,
     )
 
@@ -63,23 +157,42 @@ def run_ingest():
     with open(CHUNKS_PATH, 'w', encoding='utf-8') as f:
         json.dump(all_chunks, f, ensure_ascii=False, indent=2)
         
-    print(f"Ingestão concluída! {len(all_chunks)} chunks gerados e salvos em {CHUNKS_PATH}.")
+    logger.info(
+        "Ingestão concluída: %s chunks gerados e salvos em %s.",
+        len(all_chunks),
+        CHUNKS_PATH
+    )
 
 def run_index():
-    """Etapa 2: Indexação Híbrida (Dense + Sparse) - TRILHA A"""
-    print("Iniciando Indexação Híbrida...")
+    """Executa a indexação híbrida Dense + Sparse (Trilha A).
+
+    A função carrega os chunks processados, gera embeddings para indexação
+    vetorial no ChromaDB e cria o índice BM25 para busca lexical.
+
+    Parameters
+    ----------
+    None
+        Esta função não recebe parâmetros diretos; usa caminhos globais.
+
+    Returns
+    -------
+    None
+        Persiste os índices no disco e exibe logs no terminal.
+    """
+    logger.info("Iniciando Indexação Híbrida...")
     
     if not os.path.exists(CHUNKS_PATH):
-         print("Erro: Chunks não encontrados. Rode a ingestão primeiro.")
+         logger.error("Chunks não encontrados. Rode a ingestão primeiro.")
          return
          
     with open(CHUNKS_PATH, 'r', encoding='utf-8') as f:
         chunks = json.load(f)
 
     # 1. Indexação Densa (ChromaDB)
-    print("Gerando Embeddings Dense e salvando no ChromaDB...")
-    # Usando modelo open-source leve para rodar em CPU sem custo
-    model = SentenceTransformer('all-MiniLM-L6-v2') 
+    logger.info("Gerando embeddings dense e salvando no ChromaDB...")
+    # Modelo de embeddings configurável por variável de ambiente.
+    effective_embedding_device = _resolve_embedding_device(EMBEDDING_DEVICE)
+    model = SentenceTransformer(EMBEDDING_MODEL, device=effective_embedding_device)
     
     chroma_client = chromadb.PersistentClient(path=CHROMA_DB_DIR)
     # Reseta coleção se existir para reindexação limpa
@@ -93,18 +206,33 @@ def run_index():
     ids = [c["chunk_id"] for c in chunks]
     metadados = [c["metadados"] for c in chunks]
     
-    # Gera embeddings em batch (pode demorar um pouco na CPU)
-    embeddings = model.encode(textos).tolist()
-    
-    collection.add(
-        embeddings=embeddings,
-        documents=textos,
-        metadatas=metadados,
-        ids=ids
-    )
+    # Gera embeddings em batch com barra de progresso visível no terminal.
+    embedding_batch_size = _get_int_env("EMBEDDING_BATCH_SIZE", 64)
+    show_progress = _get_bool_env("SHOW_PROGRESS", True)
+    embeddings = model.encode(
+        textos,
+        batch_size=embedding_batch_size,
+        show_progress_bar=show_progress
+    ).tolist()
+
+    # Grava no ChromaDB em lotes para mostrar progresso e reduzir sensação de travamento.
+    chroma_add_batch_size = _get_int_env("CHROMA_ADD_BATCH_SIZE", 512)
+    total_items = len(ids)
+    for start in tqdm(
+        range(0, total_items, chroma_add_batch_size),
+        desc="Salvando no ChromaDB",
+        disable=not show_progress
+    ):
+        end = min(start + chroma_add_batch_size, total_items)
+        collection.add(
+            embeddings=embeddings[start:end],
+            documents=textos[start:end],
+            metadatas=metadados[start:end],
+            ids=ids[start:end]
+        )
 
     # 2. Indexação Esparsa (BM25)
-    print("Gerando Índice Sparse (BM25)...")
+    logger.info("Gerando índice sparse (BM25)...")
     tokenized_corpus = [nltk.word_tokenize(doc.lower()) for doc in textos]
     bm25 = BM25Okapi(tokenized_corpus)
     
@@ -112,14 +240,28 @@ def run_index():
     with open(BM25_INDEX_PATH, 'wb') as f:
         pickle.dump({'bm25': bm25, 'chunks': chunks}, f)
 
-    print("Indexação concluída com sucesso!")
+    logger.info("Indexação concluída com sucesso.")
 
 def run_evaluate():
-    """Etapa 4: Avaliação Básica (Recall@k)"""
-    print("Executando Avaliação do Retriever no Golden Set...")
+    """Executa a etapa de avaliação do retriever (placeholder).
+
+    No estado atual, a função apenas registra mensagens sobre a futura
+    integração de cálculo de Recall@k com o conjunto dourado.
+
+    Parameters
+    ----------
+    None
+        Esta função não recebe parâmetros.
+
+    Returns
+    -------
+    None
+        Apenas imprime mensagens informativas.
+    """
+    logger.info("Executando avaliação do retriever no Golden Set...")
     # Aqui entraria a lógica de leitura do seu Feedback IA - editado.xlsx
     # e busca cruzada usando a função de retrieve do rag_core.py
-    print("Implementação de Recall@k pendente de conexão com Golden Set.")
+    logger.info("Implementação de Recall@k pendente de conexão com Golden Set.")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Pipeline RAG - Projeto Final")

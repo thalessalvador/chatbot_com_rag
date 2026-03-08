@@ -4,33 +4,202 @@ import chromadb
 import os
 from sentence_transformers import SentenceTransformer
 import nltk
+from dotenv import load_dotenv
+try:
+    from src.logging_config import get_logger
+except ImportError:
+    from logging_config import get_logger
 
 # FIX: Garante que os pacotes de tokenização do NLTK são descarregados no contentor do chatbot
 nltk.download('punkt', quiet=True)
 nltk.download('punkt_tab', quiet=True)
 
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.prompts import PromptTemplate
+from langchain_ollama import ChatOllama
+from langchain_core.prompts import PromptTemplate
+
+load_dotenv()
+logger = get_logger(__name__)
+
+def _get_int_env(var_name, default_value):
+    """Lê uma variável de ambiente inteira com fallback seguro.
+
+    Parameters
+    ----------
+    var_name : str
+        Nome da variável de ambiente.
+    default_value : int
+        Valor padrão quando a variável não existe ou é inválida.
+
+    Returns
+    -------
+    int
+        Valor inteiro válido para uso na configuração.
+    """
+    try:
+        return int(os.getenv(var_name, str(default_value)))
+    except ValueError:
+        return default_value
+
+def _get_float_env(var_name, default_value):
+    """Lê uma variável de ambiente numérica (float) com fallback seguro.
+
+    Parameters
+    ----------
+    var_name : str
+        Nome da variável de ambiente.
+    default_value : float
+        Valor padrão quando a variável não existe ou é inválida.
+
+    Returns
+    -------
+    float
+        Valor numérico válido para uso na configuração.
+    """
+    try:
+        return float(os.getenv(var_name, str(default_value)))
+    except ValueError:
+        return default_value
+
+def _resolve_embedding_device(requested_device):
+    """Resolve o dispositivo de embeddings com fallback seguro para CPU.
+
+    Parameters
+    ----------
+    requested_device : str
+        Dispositivo solicitado no ambiente (`cpu` ou `cuda`).
+
+    Returns
+    -------
+    str
+        Dispositivo efetivo para o SentenceTransformer.
+    """
+    device = (requested_device or "cpu").strip().lower()
+    if device != "cuda":
+        return "cpu"
+
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return "cuda"
+    except Exception:
+        pass
+
+    logger.warning("EMBEDDING_DEVICE=cuda, mas PyTorch sem CUDA. Usando CPU.")
+    return "cpu"
 
 class HybridRAG:
-    def __init__(self, chroma_path="data/index/chroma_db", bm25_path="data/index/bm25_index.pkl"):
+    """Orquestra o fluxo RAG híbrido (Dense + Sparse) e a geração de respostas.
+
+    Esta classe centraliza:
+    - carregamento dos índices vetorial (ChromaDB) e BM25;
+    - recuperação híbrida com fusão RRF;
+    - geração de resposta com grounding usando LLM configurável.
+    """
+
+    def __init__(
+        self,
+        chroma_path="data/index/chroma_db",
+        bm25_path="data/index/bm25_index.pkl",
+        llm_provider=None,
+        llm_model=None,
+        ollama_base_url=None
+    ):
+        """Inicializa os componentes do sistema RAG e o provedor de LLM.
+
+        Parameters
+        ----------
+        chroma_path : str, opcional
+            Caminho para o banco persistente do ChromaDB com embeddings.
+        bm25_path : str, opcional
+            Caminho para o arquivo pickle que contém o índice BM25 e chunks.
+        llm_provider : str | None, opcional
+            Provedor de geração (`google` ou `ollama`). Se None, lê de
+            `LLM_PROVIDER` no ambiente.
+        llm_model : str | None, opcional
+            Nome do modelo do provedor selecionado. Se None, usa variável de
+            ambiente correspondente.
+        ollama_base_url : str | None, opcional
+            URL base da API do Ollama. Se None, lê de `OLLAMA_BASE_URL`.
+
+        Returns
+        -------
+        None
+            Construtor da classe; inicializa atributos internos.
+        """
         # Dense
         self.chroma_client = chromadb.PersistentClient(path=chroma_path)
         self.collection = self.chroma_client.get_collection(name="pareceres_tributarios")
-        self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+        embedding_model_name = os.getenv("EMBEDDING_MODEL", "all-mpnet-base-v2")
+        embedding_device = os.getenv("EMBEDDING_DEVICE", "cpu")
+        effective_embedding_device = _resolve_embedding_device(embedding_device)
+        self.rrf_k = _get_int_env("RRF_K", 60)
+        self.default_top_k = _get_int_env("RETRIEVAL_TOP_K", 5)
+        self.embedding_model = SentenceTransformer(embedding_model_name, device=effective_embedding_device)
         
         # Sparse
         with open(bm25_path, 'rb') as f:
             data = pickle.load(f)
             self.bm25 = data['bm25']
             self.chunks_data = data['chunks']
-            
-        # LLM (Usando Google Gemini via Langchain - Requer GOOGLE_API_KEY no .env)
-        self.llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0)
 
-    def retrieve(self, query, top_k=5):
-        """TRILHA A: Recuperação Híbrida (Sparse + Dense) usando RRF"""
+        provider = (llm_provider or os.getenv("LLM_PROVIDER", "google")).strip().lower()
+        self.llm_provider = provider
+
+        if provider == "google":
+            try:
+                from langchain_google_genai import ChatGoogleGenerativeAI
+            except ImportError as exc:
+                raise ImportError(
+                    "Para usar LLM_PROVIDER=google, instale: pip install langchain-google-genai"
+                ) from exc
+            model_name = llm_model or os.getenv("GOOGLE_MODEL", "gemini-2.5-flash")
+            temperature = _get_float_env("GOOGLE_TEMPERATURE", 0.0)
+            self.llm = ChatGoogleGenerativeAI(model=model_name, temperature=temperature)
+        elif provider == "ollama":
+            model_name = llm_model or os.getenv("OLLAMA_MODEL", "llama3.1:8b")
+            base_url = ollama_base_url or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+            ollama_temperature = _get_float_env("OLLAMA_TEMPERATURE", 0.0)
+            ollama_num_ctx = _get_int_env("OLLAMA_NUM_CTX", 2048)
+            ollama_num_predict = _get_int_env("OLLAMA_NUM_PREDICT", 384)
+            ollama_num_gpu = _get_int_env("OLLAMA_NUM_GPU", 1)
+            ollama_num_thread = _get_int_env("OLLAMA_NUM_THREAD", 0)
+            ollama_keep_alive = os.getenv("OLLAMA_KEEP_ALIVE", "30m")
+
+            self.llm = ChatOllama(
+                model=model_name,
+                base_url=base_url,
+                temperature=ollama_temperature,
+                num_ctx=ollama_num_ctx,
+                num_predict=ollama_num_predict,
+                num_gpu=ollama_num_gpu,
+                num_thread=ollama_num_thread,
+                keep_alive=ollama_keep_alive
+            )
+        else:
+            raise ValueError(
+                "LLM_PROVIDER inválido. Use 'google' ou 'ollama'."
+            )
+
+    def retrieve(self, query, top_k=None):
+        """Recupera os chunks mais relevantes via busca híbrida com RRF.
+
+        Parameters
+        ----------
+        query : str
+            Pergunta do usuário utilizada para recuperar contexto.
+        top_k : int, opcional
+            Quantidade final de chunks retornados após a fusão dos rankings.
+
+        Returns
+        -------
+        list[dict]
+            Lista de chunks recuperados. Cada item contém `chunk_id`, `doc_id`,
+            `texto` e `metadados`.
+        """
         
+        if top_k is None:
+            top_k = self.default_top_k
+
         # 1. Recuperação Dense
         query_embedding = self.embedding_model.encode([query]).tolist()
         dense_results = self.collection.query(
@@ -48,7 +217,7 @@ class HybridRAG:
 
         # 3. Fusão RRF (Reciprocal Rank Fusion)
         rrf_scores = {}
-        k_rrf = 60 # Constante padrão RRF
+        k_rrf = self.rrf_k
         
         for rank, doc_id in enumerate(dense_ids):
             rrf_scores[doc_id] = rrf_scores.get(doc_id, 0) + 1 / (k_rrf + rank + 1)
@@ -68,7 +237,20 @@ class HybridRAG:
         return recovered_chunks
 
     def generate_answer(self, query, retrieved_chunks):
-        """Geração com Grounding, Recusa e Citações rigorosas."""
+        """Gera resposta ancorada no contexto recuperado com regras de citação.
+
+        Parameters
+        ----------
+        query : str
+            Pergunta do usuário.
+        retrieved_chunks : list[dict]
+            Trechos recuperados pelo método `retrieve`, usados como contexto.
+
+        Returns
+        -------
+        str
+            Resposta textual do LLM, restrita ao contexto recuperado.
+        """
         
         if not retrieved_chunks:
             return "Não encontrei informações na base para responder a esta pergunta."

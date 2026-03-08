@@ -1,0 +1,2 @@
+langchain-core>=0.3.75,<0.4.0
+langchain-google-genai==2.1.12
