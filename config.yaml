@@ -23,7 +23,7 @@ retrieval:
 
 scraping:
   base_url: https://appasp.economia.go.gov.br/pareceres/
-  max_docs: 10
+  max_docs: 9999
   timeout_seconds: 30
   user_agent: chatbot-rag-scraper/1.0
   delay_min_seconds: 3
