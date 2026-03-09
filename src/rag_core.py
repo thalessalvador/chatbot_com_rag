@@ -12,6 +12,10 @@ from sentence_transformers import SentenceTransformer
 import nltk
 from dotenv import load_dotenv
 try:
+    from pylatexenc.latex2text import LatexNodes2Text
+except ImportError:
+    LatexNodes2Text = None
+try:
     from src.app_config import get_config_value
     from src.logging_config import get_logger
 except ImportError:
@@ -125,6 +129,190 @@ def _safe_tokenize(text):
         return nltk.word_tokenize(text)
     except Exception:
         return re.findall(r"\w+", text, flags=re.UNICODE)
+
+
+def _normalize_math_notation(answer_text):
+    """Normaliza notação matemática estilo LaTeX para texto simples.
+
+    Parameters
+    ----------
+    answer_text : str
+        Texto de resposta gerado pelo LLM.
+
+    Returns
+    -------
+    str
+        Texto com expressões matemáticas em formato textual simples.
+    """
+    if not answer_text:
+        return answer_text
+
+    def _latex_to_plain(raw_text):
+        """Converte expressão LaTeX simples para representação textual."""
+        parsed = raw_text
+
+        # Só usa parser LaTeX quando há comando LaTeX explícito (ex.: \frac, \text).
+        has_latex_command = bool(re.search(r"\\[A-Za-z]+", parsed))
+        if LatexNodes2Text is not None and has_latex_command:
+            try:
+                # Protege porcentagens para não serem tratadas como comentário LaTeX.
+                parsed_for_latex = parsed.replace("%", r"\%")
+                parsed = LatexNodes2Text().latex_to_text(parsed_for_latex)
+            except Exception:
+                # Mantém fallback regex abaixo caso o parser falhe.
+                parsed = raw_text
+
+        # Remove wrappers comuns de bloco matemático.
+        parsed = re.sub(r"^\s*\[\s*(.*?)\s*\]\s*$", r"\1", parsed, flags=re.DOTALL)
+        parsed = parsed.strip()
+        if parsed.startswith("[") and not parsed.endswith("]"):
+            parsed = parsed.lstrip("[").strip()
+        if parsed.endswith("]") and not parsed.startswith("["):
+            parsed = parsed.rstrip("]").strip()
+
+        # Remove apenas delimitadores de bloco matemático que contenham comando LaTeX.
+        parsed = re.sub(
+            r"\[\s*([^\]]*\\[A-Za-z]+[^\]]*)\s*\]",
+            lambda m: m.group(1),
+            parsed,
+            flags=re.DOTALL,
+        )
+
+        # Casos comuns com \frac envolvendo \text{...}.
+        parsed = re.sub(
+            r"\\frac\s*\{\s*\\text\s*\{([^{}]+)\}\s*\}\s*\{\s*\\text\s*\{([^{}]+)\}\s*\}",
+            r"(\1 / \2)",
+            parsed,
+        )
+
+        # Resolve \text{...} antes de tentar frações genéricas.
+        parsed = re.sub(r"\\text\s*\{([^{}]+)\}", r"\1", parsed)
+
+        # Frações genéricas simples.
+        frac_pattern = re.compile(r"\\frac\s*\{([^{}]+)\}\s*\{([^{}]+)\}")
+        while frac_pattern.search(parsed):
+            parsed = frac_pattern.sub(r"(\1 / \2)", parsed)
+
+        # Fallbacks para sintaxes incompletas.
+        parsed = re.sub(r"\\frac\s*\(([^()]+)\)\s*\(([^()]+)\)", r"(\1 / \2)", parsed)
+        parsed = re.sub(r"\\frac\b", " dividido por ", parsed)
+
+        replacements = {
+            r"\times": " x ",
+            r"\cdot": " * ",
+            r"\left": "",
+            r"\right": "",
+            r"\(": "(",
+            r"\)": ")",
+            r"\[": "[",
+            r"\]": "]",
+            "×": " x ",
+        }
+        for src, dst in replacements.items():
+            parsed = parsed.replace(src, dst)
+
+        parsed = parsed.replace("{", "").replace("}", "")
+        parsed = re.sub(r"[ \t]+", " ", parsed)
+        parsed = re.sub(r"\n{3,}", "\n\n", parsed)
+        return parsed.strip()
+
+    text = answer_text
+    latex_candidates = []
+
+    # Captura blocos com comandos LaTeX para comparação em modo debug.
+    for m in re.finditer(r"\[[^\]]*\\[A-Za-z]+[^\]]*\]", text, flags=re.DOTALL):
+        snippet = m.group(0).strip()
+        if snippet:
+            latex_candidates.append(snippet)
+    for m in re.finditer(r"\\frac\s*\{[^{}]+\}\s*\{[^{}]+\}", text):
+        snippet = m.group(0).strip()
+        if snippet:
+            latex_candidates.append(snippet)
+    for m in re.finditer(r"\$[^$]*\\[A-Za-z][^$]*\$", text):
+        snippet = m.group(0).strip()
+        if snippet:
+            latex_candidates.append(snippet)
+
+    text = _latex_to_plain(text)
+
+    return text
+
+
+def _normalize_markdown_tables(answer_text):
+    """Converte tabelas Markdown em lista de bullets legível.
+
+    Parameters
+    ----------
+    answer_text : str
+        Texto de resposta gerado pelo LLM.
+
+    Returns
+    -------
+    str
+        Texto sem tabela Markdown, com itens em bullets.
+    """
+    if not answer_text:
+        return answer_text
+
+    lines = answer_text.splitlines()
+    output = []
+    i = 0
+
+    def _is_dash_only(text):
+        """Indica se um trecho contém apenas traços/separadores visuais."""
+        return bool(re.fullmatch(r"[\s\-\—\–\|\:]+", text or ""))
+
+    while i < len(lines):
+        line = lines[i]
+        is_table_line = line.count("|") >= 2
+        if not is_table_line:
+            # Fallback para "linhas-tabela" sem cabeçalho formal.
+            if line.count("|") >= 1:
+                parts = [p.strip() for p in line.split("|") if p.strip()]
+                parts = [p for p in parts if not _is_dash_only(p)]
+                if len(parts) >= 2:
+                    output.append("- " + " | ".join(parts))
+                    i += 1
+                    continue
+            output.append(line)
+            i += 1
+            continue
+
+        # Coleta bloco de tabela consecutivo.
+        block = []
+        while i < len(lines) and lines[i].count("|") >= 2:
+            block.append(lines[i].strip())
+            i += 1
+
+        # Remove linhas separadoras tipo |---|---|
+        filtered = []
+        for row in block:
+            row_no_pipes = re.sub(r"[\|\-\—\–]", "", row).strip()
+            if row_no_pipes:
+                filtered.append(row)
+
+        if len(filtered) < 2:
+            output.extend(block)
+            continue
+
+        # Primeira linha útil como cabeçalho.
+        header_cells = [c.strip() for c in filtered[0].strip("|").split("|")]
+        data_rows = filtered[1:]
+
+        for row in data_rows:
+            cells = [c.strip() for c in row.strip("|").split("|")]
+            cells = [c for c in cells if not _is_dash_only(c)]
+            parts = []
+            for idx, cell in enumerate(cells):
+                if not cell:
+                    continue
+                key = header_cells[idx] if idx < len(header_cells) else f"Campo {idx+1}"
+                parts.append(f"{key}: {cell}")
+            if parts:
+                output.append("- " + " | ".join(parts))
+
+    return "\n".join(output)
+
 
 class HybridRAG:
     """Orquestra o fluxo RAG híbrido (Dense + Sparse) e a geração de respostas.
@@ -300,7 +488,8 @@ class HybridRAG:
         context_str = ""
         for chunk in retrieved_chunks:
             context_str += f"\n\n--- INÍCIO DO TRECHO [{chunk['chunk_id']}] ---\n"
-            context_str += f"Fonte: {chunk['metadados']['fonte']}\n"
+            context_str += f"Título: {chunk['metadados'].get('titulo', 'Documento sem título')}\n"
+            context_str += f"Fonte: {chunk['metadados'].get('fonte', 'N/A')}\n"
             context_str += chunk['texto']
             context_str += f"\n--- FIM DO TRECHO [{chunk['chunk_id']}] ---"
 
@@ -312,7 +501,20 @@ Sua tarefa é responder à pergunta do utilizador APENAS com base no contexto fo
 REGRAS OBRIGATÓRIAS:
 1. GROUNDING: Se a resposta não estiver no contexto, responda EXATAMENTE: "Não encontrei informações na base de conhecimento para responder a esta pergunta."
 2. NÃO INVENTE: Não use conhecimentos externos à base fornecida. O foco não é aconselhamento jurídico genérico.
-3. CITAÇÕES: Sempre que afirmar algo, deve citar a origem da informação usando o formato exato [doc_id#chunk_id] no final da frase. Exemplo: "O ICMS é isento neste caso [P_239_2023_SEI#chunk_002]."
+3. CITAÇÕES: Sempre que afirmar algo, cite a origem no final da frase com TÍTULO, LINK e CHUNK_ID.
+   Formato exato: [Título do documento | URL da fonte | chunk_id]
+   Exemplo: "O ICMS é isento neste caso [PARECER ECONOMIA/GEOT-15962 Nº 115/2022 | https://appasp.economia.go.gov.br/.../P_115_2022_SEI.docx | 77c6a4319534#chunk_0003]."
+4. IDIOMA: Responda sempre em Português do Brasil (pt-BR), inclusive títulos, explicações e conclusões.
+5. FORMATAÇÃO: Não use LaTeX, MathJax, Markdown matemático nem expressões como \text{{...}}. Quando houver fórmula, escreva em texto simples, por exemplo: "Crédito de ICMS = Valor total do combustível x alíquota de ICMS".
+6. EVITE BLOCO DE FÓRMULA: Não escreva "Fórmula:" com notação simbólica. Prefira descrever o cálculo em frase clara usando "dividido por", "multiplicado por" e exemplos textuais.
+7. CONCISÃO: Seja objetivo. Responda em no máximo 8 bullets curtos. Evite introduções longas, repetições e trechos enciclopédicos.
+8. TABELAS: Não use tabelas em Markdown (com `|`). Quando precisar comparar conceitos, use lista de bullets com rótulos claros.
+
+FORMATO OBRIGATÓRIO DE SAÍDA:
+- Resposta direta: 1 a 2 bullets.
+- Base legal: 2 a 4 bullets com referência normativa.
+- Como aplicar: 2 a 3 bullets práticos.
+- Citações: em todas as afirmações relevantes, no formato exigido.
 
 CONTEXTO RECUPERADO:
 {contexto}
@@ -323,5 +525,7 @@ RESPOSTA:"""
         
         prompt = prompt_template.format(contexto=context_str, pergunta=query)
         response = self.llm.invoke(prompt)
-        
-        return response.content
+        answer = response.content
+        answer = _normalize_math_notation(answer)
+        answer = _normalize_markdown_tables(answer)
+        return answer

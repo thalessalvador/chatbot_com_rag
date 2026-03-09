@@ -2,7 +2,7 @@ llm:
   provider: ollama
   google_model: gemini-2.5-flash
   google_temperature: 0.0
-  ollama_model: ministral-3:14b
+  ollama_model: ministral-3:8b
   ollama_base_url: http://localhost:11434
   ollama_temperature: 0.0
   ollama_num_ctx: 3072
