@@ -314,6 +314,94 @@ def _normalize_markdown_tables(answer_text):
     return "\n".join(output)
 
 
+def _normalize_markdown_artifacts(answer_text):
+    """Remove artefatos de Markdown que prejudicam legibilidade no Streamlit.
+
+    Parameters
+    ----------
+    answer_text : str
+        Texto de resposta gerado pelo LLM.
+
+    Returns
+    -------
+    str
+        Texto com ênfases/tabelas malformadas reduzidas.
+    """
+    if not answer_text:
+        return answer_text
+
+    text = answer_text
+    # Remove marcações de ênfase que frequentemente vêm desbalanceadas.
+    text = text.replace("**", "")
+    text = text.replace("__", "")
+
+    # Normaliza separadores exagerados.
+    text = re.sub(r"[—\-]{4,}", "—", text)
+
+    # Corrige espaços comuns em moeda.
+    text = re.sub(r"R\s*\$\s*", "R$ ", text)
+    text = re.sub(r"R\$\s+", "R$ ", text)
+
+    return text
+
+
+def _log_llm_request(query, retrieved_chunks, context_str):
+    """Registra no log o payload de recuperação enviado ao LLM.
+
+    Parameters
+    ----------
+    query : str
+        Pergunta original do usuário.
+    retrieved_chunks : list[dict]
+        Chunks recuperados e selecionados para compor o contexto.
+    context_str : str
+        Contexto consolidado que será interpolado no prompt.
+
+    Returns
+    -------
+    None
+        Apenas emite logs para inspeção operacional.
+    """
+    logger.info("--- LOG DE RECUPERAÇÃO (Top-K) ---")
+    logger.info("Pergunta enviada ao LLM: %s", query)
+    logger.info("Quantidade de chunks recuperados: %s", len(retrieved_chunks))
+
+    for idx, chunk in enumerate(retrieved_chunks, start=1):
+        metadata = chunk.get("metadados", {})
+        chunk_id = chunk.get("chunk_id", "N/A")
+        titulo = metadata.get("titulo", "Documento sem título")
+        secao = metadata.get("secao", "secao_geral")
+
+        source_text = chunk.get("texto_bruto") or chunk.get("texto", "")
+        preview = " ".join(str(source_text).split())
+        if len(preview) > 280:
+            preview = preview[:280] + "..."
+
+        logger.info("Resultado %s | ID: %s", idx, chunk_id)
+        logger.info("Titulo: %s | Secao: %s", titulo, secao)
+        logger.info("Texto enviado ao LLM: %s", preview)
+
+    logger.info("Contexto consolidado (tamanho em caracteres): %s", len(context_str))
+
+
+def _log_full_prompt(prompt):
+    """Registra o prompt completo enviado ao LLM.
+
+    Parameters
+    ----------
+    prompt : str
+        Prompt final já interpolado com contexto e pergunta.
+
+    Returns
+    -------
+    None
+        Apenas emite logs para inspeção detalhada.
+    """
+    logger.info("--- INICIO PROMPT COMPLETO ENVIADO AO LLM ---")
+    logger.info("%s", prompt)
+    logger.info("--- FIM PROMPT COMPLETO ENVIADO AO LLM ---")
+
+
 class HybridRAG:
     """Orquestra o fluxo RAG híbrido (Dense + Sparse) e a geração de respostas.
 
@@ -493,6 +581,8 @@ class HybridRAG:
             context_str += chunk['texto']
             context_str += f"\n--- FIM DO TRECHO [{chunk['chunk_id']}] ---"
 
+        _log_llm_request(query, retrieved_chunks, context_str)
+
         prompt_template = PromptTemplate(
             input_variables=["contexto", "pergunta"],
             template="""Você é um assistente tributário do Estado de Goiás.
@@ -509,6 +599,8 @@ REGRAS OBRIGATÓRIAS:
 6. EVITE BLOCO DE FÓRMULA: Não escreva "Fórmula:" com notação simbólica. Prefira descrever o cálculo em frase clara usando "dividido por", "multiplicado por" e exemplos textuais.
 7. CONCISÃO: Seja objetivo. Responda em no máximo 8 bullets curtos. Evite introduções longas, repetições e trechos enciclopédicos.
 8. TABELAS: Não use tabelas em Markdown (com `|`). Quando precisar comparar conceitos, use lista de bullets com rótulos claros.
+9. ESTILO DE TEXTO: Use texto simples. Não use negrito (`**`), itálico, nem formatação Markdown complexa.
+10. VALORES MONETÁRIOS E PERCENTUAIS: Sempre escreva no formato brasileiro legível (ex.: R$ 65.000,00 e 3,5%).
 
 FORMATO OBRIGATÓRIO DE SAÍDA:
 - Resposta direta: 1 a 2 bullets.
@@ -524,8 +616,10 @@ RESPOSTA:"""
         )
         
         prompt = prompt_template.format(contexto=context_str, pergunta=query)
+        _log_full_prompt(prompt)
         response = self.llm.invoke(prompt)
         answer = response.content
         answer = _normalize_math_notation(answer)
+        answer = _normalize_markdown_artifacts(answer)
         answer = _normalize_markdown_tables(answer)
         return answer
