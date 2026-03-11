@@ -47,3 +47,6 @@ logging:
 
 ui:
   show_progress: true
+
+rag:
+  no_context_response: "Não encontrei informações na base de conhecimento para responder a esta pergunta."
