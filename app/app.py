@@ -174,6 +174,8 @@ if prompt := st.chat_input("Digite sua pergunta sobre tributação..."):
                                 st.write("Nenhum trecho relevante encontrado.")
 
                 except Exception as e:
-                    st.error(f"❌ **Ocorreu um erro ao processar o pedido:** {str(e)}")
+                    error_text = str(e)
+                    logger.exception("Erro ao processar pergunta: %s", error_text)
+                    st.error(f"❌ **Ocorreu um erro ao processar o pedido:** {error_text}")
                     if st.session_state.messages:
                         st.session_state.messages.pop()

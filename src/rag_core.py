@@ -2,7 +2,7 @@
 import pickle
 import os
 
-# Desativa telemetria do Chroma de forma explÃ­cita para evitar logs de PostHog.
+# Desativa telemetria do Chroma de forma explícita para evitar logs de PostHog.
 os.environ.setdefault("ANONYMIZED_TELEMETRY", "FALSE")
 
 import chromadb
@@ -22,7 +22,7 @@ except ImportError:
     from app_config import get_config_value
     from logging_config import get_logger
 
-# FIX: Garante que os pacotes de tokenizaÃ§Ã£o do NLTK sÃ£o descarregados no contentor do chatbot
+# FIX: Garante que os pacotes de tokenização do NLTK são descarregados no contentor do chatbot
 nltk.download('punkt', quiet=True)
 nltk.download('punkt_tab', quiet=True)
 
@@ -48,7 +48,7 @@ def _extract_response_text(response):
 
 
 def _is_no_context_response(answer_text):
-    """Valida se a resposta retornada Ã© a resposta padrÃ£o de ausÃªncia de contexto."""
+    """Valida se a resposta retornada é a resposta padrão de ausência de contexto."""
     if not answer_text:
         return False
     normalized = answer_text.strip().strip('"').strip()
@@ -64,7 +64,7 @@ def _build_trecho_alias_entries(retrieved_chunks):
             {
                 "alias": f"TRECHO_{idx}",
                 "chunk_id": chunk.get("chunk_id", ""),
-                "titulo": metadata.get("titulo", "Documento sem tÃ­tulo"),
+                "titulo": metadata.get("titulo", "Documento sem título"),
                 "fonte": metadata.get("fonte", ""),
                 "conteudo": chunk.get("texto", "") or "",
             }
@@ -93,7 +93,7 @@ def _build_context_with_trecho_aliases(alias_entries):
 
 
 def _build_fontes_disponiveis(alias_entries):
-    """Monta bloco resumido de fontes disponÃ­veis para prompt de correÃ§Ã£o."""
+    """Monta bloco resumido de fontes disponíveis para prompt de correção."""
     lines = []
     for entry in alias_entries:
         lines.append(
@@ -103,7 +103,7 @@ def _build_fontes_disponiveis(alias_entries):
 
 
 def _build_trechos_disponiveis(alias_entries, preview_chars=350):
-    """Monta bloco de trechos com resumo para tarefa de mapeamento de citaÃ§Ãµes."""
+    """Monta bloco de trechos com resumo para tarefa de mapeamento de citações."""
     lines = []
     for entry in alias_entries:
         preview = " ".join(entry["conteudo"].split())
@@ -114,12 +114,12 @@ def _build_trechos_disponiveis(alias_entries, preview_chars=350):
 
 
 def _has_trecho_alias_citation(answer_text):
-    """Indica se o texto contÃ©m pelo menos uma citaÃ§Ã£o no formato [[TRECHO_n]]."""
+    """Indica se o texto contém pelo menos uma citação no formato [[TRECHO_n]]."""
     return bool(re.search(r"\[\[TRECHO_\d+\]\]", answer_text or ""))
 
 
 def _convert_trecho_aliases_to_html(answer_text, alias_entries):
-    """Converte [[TRECHO_n]] para citaÃ§Ã£o com link HTML e chunk_id."""
+    """Converte [[TRECHO_n]] para citação com link HTML e chunk_id."""
     if not answer_text:
         return answer_text
 
@@ -143,7 +143,7 @@ def _convert_trecho_aliases_to_html(answer_text, alias_entries):
 
 
 def _append_fallback_sources(answer_text, alias_entries):
-    """Anexa lista de fontes quando o modelo nÃ£o cita aliases vÃ¡lidos."""
+    """Anexa lista de fontes quando o modelo não cita aliases válidos."""
     if not answer_text or "Fontes consultadas:" in answer_text:
         return answer_text
 
@@ -161,19 +161,19 @@ def _append_fallback_sources(answer_text, alias_entries):
     return "\n".join(lines)
 
 def _get_int_env(var_name, default_value):
-    """LÃª uma variÃ¡vel de ambiente inteira com fallback seguro.
+    """Lê uma variável de ambiente inteira com fallback seguro.
 
     Parameters
     ----------
     var_name : str
-        Nome da variÃ¡vel de ambiente.
+        Nome da variável de ambiente.
     default_value : int
-        Valor padrÃ£o quando a variÃ¡vel nÃ£o existe ou Ã© invÃ¡lida.
+        Valor padrão quando a variável não existe ou é inválida.
 
     Returns
     -------
     int
-        Valor inteiro vÃ¡lido para uso na configuraÃ§Ã£o.
+        Valor inteiro válido para uso na configuração.
     """
     mapping = {
         "RRF_K": "retrieval.rrf_k",
@@ -189,19 +189,19 @@ def _get_int_env(var_name, default_value):
         return default_value
 
 def _get_float_env(var_name, default_value):
-    """LÃª uma variÃ¡vel de ambiente numÃ©rica (float) com fallback seguro.
+    """Lê uma variável de ambiente numérica (float) com fallback seguro.
 
     Parameters
     ----------
     var_name : str
-        Nome da variÃ¡vel de ambiente.
+        Nome da variável de ambiente.
     default_value : float
-        Valor padrÃ£o quando a variÃ¡vel nÃ£o existe ou Ã© invÃ¡lida.
+        Valor padrão quando a variável não existe ou é inválida.
 
     Returns
     -------
     float
-        Valor numÃ©rico vÃ¡lido para uso na configuraÃ§Ã£o.
+        Valor numérico válido para uso na configuração.
     """
     mapping = {
         "GOOGLE_TEMPERATURE": "llm.google_temperature",
@@ -241,12 +241,12 @@ def _resolve_embedding_device(requested_device):
 
 
 def _safe_tokenize(text):
-    """Tokeniza texto com fallback sem dependÃªncia de recursos externos.
+    """Tokeniza texto com fallback sem dependência de recursos externos.
 
     Parameters
     ----------
     text : str
-        Texto de entrada para tokenizaÃ§Ã£o.
+        Texto de entrada para tokenização.
 
     Returns
     -------
@@ -260,7 +260,7 @@ def _safe_tokenize(text):
 
 
 def _normalize_math_notation(answer_text):
-    """Normaliza notaÃ§Ã£o matemÃ¡tica estilo LaTeX para texto simples.
+    """Normaliza notação matemática estilo LaTeX para texto simples.
 
     Parameters
     ----------
@@ -270,27 +270,27 @@ def _normalize_math_notation(answer_text):
     Returns
     -------
     str
-        Texto com expressÃµes matemÃ¡ticas em formato textual simples.
+        Texto com expressões matemáticas em formato textual simples.
     """
     if not answer_text:
         return answer_text
 
     def _latex_to_plain(raw_text):
-        """Converte expressÃ£o LaTeX simples para representaÃ§Ã£o textual."""
+        """Converte expressão LaTeX simples para representação textual."""
         parsed = raw_text
 
-        # SÃ³ usa parser LaTeX quando hÃ¡ comando LaTeX explÃ­cito (ex.: \frac, \text).
+        # Só usa parser LaTeX quando há comando LaTeX explícito (ex.: \frac, \text).
         has_latex_command = bool(re.search(r"\\[A-Za-z]+", parsed))
         if LatexNodes2Text is not None and has_latex_command:
             try:
-                # Protege porcentagens para nÃ£o serem tratadas como comentÃ¡rio LaTeX.
+                # Protege porcentagens para não serem tratadas como comentário LaTeX.
                 parsed_for_latex = parsed.replace("%", r"\%")
                 parsed = LatexNodes2Text().latex_to_text(parsed_for_latex)
             except Exception:
-                # MantÃ©m fallback regex abaixo caso o parser falhe.
+                # Mantém fallback regex abaixo caso o parser falhe.
                 parsed = raw_text
 
-        # Remove wrappers comuns de bloco matemÃ¡tico.
+        # Remove wrappers comuns de bloco matemático.
         parsed = re.sub(r"^\s*\[\s*(.*?)\s*\]\s*$", r"\1", parsed, flags=re.DOTALL)
         parsed = parsed.strip()
         if parsed.startswith("[") and not parsed.endswith("]"):
@@ -298,7 +298,7 @@ def _normalize_math_notation(answer_text):
         if parsed.endswith("]") and not parsed.startswith("["):
             parsed = parsed.rstrip("]").strip()
 
-        # Remove apenas delimitadores de bloco matemÃ¡tico que contenham comando LaTeX.
+        # Remove apenas delimitadores de bloco matemático que contenham comando LaTeX.
         parsed = re.sub(
             r"\[\s*([^\]]*\\[A-Za-z]+[^\]]*)\s*\]",
             lambda m: m.group(1),
@@ -313,10 +313,10 @@ def _normalize_math_notation(answer_text):
             parsed,
         )
 
-        # Resolve \text{...} antes de tentar fraÃ§Ãµes genÃ©ricas.
+        # Resolve \text{...} antes de tentar frações genéricas.
         parsed = re.sub(r"\\text\s*\{([^{}]+)\}", r"\1", parsed)
 
-        # FraÃ§Ãµes genÃ©ricas simples.
+        # Frações genéricas simples.
         frac_pattern = re.compile(r"\\frac\s*\{([^{}]+)\}\s*\{([^{}]+)\}")
         while frac_pattern.search(parsed):
             parsed = frac_pattern.sub(r"(\1 / \2)", parsed)
@@ -334,7 +334,7 @@ def _normalize_math_notation(answer_text):
             r"\)": ")",
             r"\[": "[",
             r"\]": "]",
-            "Ã—": " x ",
+            "×": " x ",
         }
         for src, dst in replacements.items():
             parsed = parsed.replace(src, dst)
@@ -347,7 +347,7 @@ def _normalize_math_notation(answer_text):
     text = answer_text
     latex_candidates = []
 
-    # Captura blocos com comandos LaTeX para comparaÃ§Ã£o em modo debug.
+    # Captura blocos com comandos LaTeX para comparação em modo debug.
     for m in re.finditer(r"\[[^\]]*\\[A-Za-z]+[^\]]*\]", text, flags=re.DOTALL):
         snippet = m.group(0).strip()
         if snippet:
@@ -367,7 +367,7 @@ def _normalize_math_notation(answer_text):
 
 
 def _normalize_markdown_tables(answer_text):
-    """Converte tabelas Markdown em lista de bullets legÃ­vel.
+    """Converte tabelas Markdown em lista de bullets legível.
 
     Parameters
     ----------
@@ -387,14 +387,14 @@ def _normalize_markdown_tables(answer_text):
     i = 0
 
     def _is_dash_only(text):
-        """Indica se um trecho contÃ©m apenas traÃ§os/separadores visuais."""
+        """Indica se um trecho contém apenas traços/separadores visuais."""
         return bool(re.fullmatch(r"[\s\-\â€”\â€“\|\:]+", text or ""))
 
     while i < len(lines):
         line = lines[i]
         is_table_line = line.count("|") >= 2
         if not is_table_line:
-            # Fallback para "linhas-tabela" sem cabeÃ§alho formal.
+            # Fallback para "linhas-tabela" sem cabeçalho formal.
             if line.count("|") >= 1:
                 parts = [p.strip() for p in line.split("|") if p.strip()]
                 parts = [p for p in parts if not _is_dash_only(p)]
@@ -423,7 +423,7 @@ def _normalize_markdown_tables(answer_text):
             output.extend(block)
             continue
 
-        # Primeira linha Ãºtil como cabeÃ§alho.
+        # Primeira linha útil como cabeçalho.
         header_cells = [c.strip() for c in filtered[0].strip("|").split("|")]
         data_rows = filtered[1:]
 
@@ -453,20 +453,20 @@ def _normalize_markdown_artifacts(answer_text):
     Returns
     -------
     str
-        Texto com Ãªnfases/tabelas malformadas reduzidas.
+        Texto com ênfases/tabelas malformadas reduzidas.
     """
     if not answer_text:
         return answer_text
 
     text = answer_text
-    # Remove marcaÃ§Ãµes de Ãªnfase que frequentemente vÃªm desbalanceadas.
+    # Remove marcações de ênfase que frequentemente vêm desbalanceadas.
     text = text.replace("**", "")
     text = text.replace("__", "")
 
     # Normaliza separadores exagerados.
     text = re.sub(r"[â€”\-]{4,}", "â€”", text)
 
-    # Corrige espaÃ§os comuns em moeda.
+    # Corrige espaços comuns em moeda.
     text = re.sub(r"R\s*\$\s*", "R$ ", text)
     text = re.sub(r"R\$\s+", "R$ ", text)
 
@@ -474,30 +474,30 @@ def _normalize_markdown_artifacts(answer_text):
 
 
 def _log_llm_request(query, retrieved_chunks, context_str):
-    """Registra no log o payload de recuperaÃ§Ã£o enviado ao LLM.
+    """Registra no log o payload de recuperação enviado ao LLM.
 
     Parameters
     ----------
     query : str
-        Pergunta original do usuÃ¡rio.
+        Pergunta original do usuário.
     retrieved_chunks : list[dict]
         Chunks recuperados e selecionados para compor o contexto.
     context_str : str
-        Contexto consolidado que serÃ¡ interpolado no prompt.
+        Contexto consolidado que será interpolado no prompt.
 
     Returns
     -------
     None
-        Apenas emite logs para inspeÃ§Ã£o operacional.
+        Apenas emite logs para inspeção operacional.
     """
-    logger.info("--- LOG DE RECUPERAÃ‡ÃƒO (Top-K) ---")
+    logger.info("--- LOG DE RECUPERAÇÃO (Top-K) ---")
     logger.info("Pergunta enviada ao LLM: %s", query)
     logger.info("Quantidade de chunks recuperados: %s", len(retrieved_chunks))
 
     for idx, chunk in enumerate(retrieved_chunks, start=1):
         metadata = chunk.get("metadados", {})
         chunk_id = chunk.get("chunk_id", "N/A")
-        titulo = metadata.get("titulo", "Documento sem tÃ­tulo")
+        titulo = metadata.get("titulo", "Documento sem título")
         secao = metadata.get("secao", "secao_geral")
 
         source_text = chunk.get("texto_bruto") or chunk.get("texto", "")
@@ -518,12 +518,12 @@ def _log_full_prompt(prompt):
     Parameters
     ----------
     prompt : str
-        Prompt final jÃ¡ interpolado com contexto e pergunta.
+        Prompt final já interpolado com contexto e pergunta.
 
     Returns
     -------
     None
-        Apenas emite logs para inspeÃ§Ã£o detalhada.
+        Apenas emite logs para inspeção detalhada.
     """
     logger.info("--- INICIO PROMPT COMPLETO ENVIADO AO LLM ---")
     logger.info("%s", prompt)
@@ -531,12 +531,12 @@ def _log_full_prompt(prompt):
 
 
 class HybridRAG:
-    """Orquestra o fluxo RAG hÃ­brido (Dense + Sparse) e a geraÃ§Ã£o de respostas.
+    """Orquestra o fluxo RAG híbrido (Dense + Sparse) e a geração de respostas.
 
     Esta classe centraliza:
-    - carregamento dos Ã­ndices vetorial (ChromaDB) e BM25;
-    - recuperaÃ§Ã£o hÃ­brida com fusÃ£o RRF;
-    - geraÃ§Ã£o de resposta com grounding usando LLM configurÃ¡vel.
+    - carregamento dos índices vetorial (ChromaDB) e BM25;
+    - recuperação híbrida com fusão RRF;
+    - geração de resposta com grounding usando LLM configurável.
     """
 
     def __init__(
@@ -554,15 +554,15 @@ class HybridRAG:
         chroma_path : str, opcional
             Caminho para o banco persistente do ChromaDB com embeddings.
         bm25_path : str, opcional
-            Caminho para o arquivo pickle que contÃ©m o Ã­ndice BM25 e chunks.
+            Caminho para o arquivo pickle que contém o índice BM25 e chunks.
         llm_provider : str | None, opcional
-            Provedor de geraÃ§Ã£o (`google` ou `ollama`). Se None, lÃª de
+            Provedor de geração (`google` ou `ollama`). Se None, lê de
             `LLM_PROVIDER` no ambiente.
         llm_model : str | None, opcional
-            Nome do modelo do provedor selecionado. Se None, usa variÃ¡vel de
+            Nome do modelo do provedor selecionado. Se None, usa variável de
             ambiente correspondente.
         ollama_base_url : str | None, opcional
-            URL base da API do Ollama. Se None, lÃª de `OLLAMA_BASE_URL`.
+            URL base da API do Ollama. Se None, lê de `OLLAMA_BASE_URL`.
 
         Returns
         -------
@@ -626,45 +626,45 @@ class HybridRAG:
             )
         else:
             raise ValueError(
-                "LLM_PROVIDER invÃ¡lido. Use 'google' ou 'ollama'."
+                "LLM_PROVIDER inválido. Use 'google' ou 'ollama'."
             )
 
     def retrieve(self, query, top_k=None):
-        """Recupera os chunks mais relevantes via busca hÃ­brida com RRF.
+        """Recupera os chunks mais relevantes via busca híbrida com RRF.
 
         Parameters
         ----------
         query : str
-            Pergunta do usuÃ¡rio utilizada para recuperar contexto.
+            Pergunta do usuário utilizada para recuperar contexto.
         top_k : int, opcional
-            Quantidade final de chunks retornados apÃ³s a fusÃ£o dos rankings.
+            Quantidade final de chunks retornados após a fusão dos rankings.
 
         Returns
         -------
         list[dict]
-            Lista de chunks recuperados. Cada item contÃ©m `chunk_id`, `doc_id`,
+            Lista de chunks recuperados. Cada item contém `chunk_id`, `doc_id`,
             `texto` e `metadados`.
         """
         
         if top_k is None:
             top_k = self.default_top_k
 
-        # 1. RecuperaÃ§Ã£o Dense
+        # 1. Recuperação Dense
         query_embedding = self.embedding_model.encode([query]).tolist()
         dense_results = self.collection.query(
             query_embeddings=query_embedding,
-            n_results=top_k * 2 # Busca mais para fazer a fusÃ£o
+            n_results=top_k * 2 # Busca mais para fazer a fusão
         )
         dense_ids = dense_results['ids'][0]
         
-        # 2. RecuperaÃ§Ã£o Sparse (BM25)
+        # 2. Recuperação Sparse (BM25)
         tokenized_query = _safe_tokenize(query.lower())
         bm25_scores = self.bm25.get_scores(tokenized_query)
-        # Pega os top K * 2 Ã­ndices
+        # Pega os top K * 2 índices
         top_sparse_idx = sorted(range(len(bm25_scores)), key=lambda i: bm25_scores[i], reverse=True)[:top_k * 2]
         sparse_ids = [self.chunks_data[i]["chunk_id"] for i in top_sparse_idx]
 
-        # 3. FusÃ£o RRF (Reciprocal Rank Fusion)
+        # 3. Fusão RRF (Reciprocal Rank Fusion)
         rrf_scores = {}
         k_rrf = self.rrf_k
         
@@ -719,13 +719,12 @@ REGRAS OBRIGATÓRIAS:
 2. NÃO INVENTE: Não use conhecimentos externos à base fornecida. O foco não é aconselhamento jurídico genérico.
 3. IDIOMA: Responda sempre em Português do Brasil (pt-BR).
 4. FORMATAÇÃO: Não use LaTeX, MathJax, Markdown matemático nem expressões como \text{{...}}.
-5. CONCISÃO: Seja objetivo. Responda em no máximo 8 bullets curtos.
-6. TABELAS: Não use tabelas em Markdown (com `|`).
+5. CONCISÃO: Seja objetivo.
+6. Sempre responda levando em conta que a pergunta se aplica ao estado de Goiás.
 
 FORMATO OBRIGATÓRIO DE SAÍDA:
-- Resposta direta: 1 a 2 bullets.
-- Base legal: 2 a 4 bullets.
-- Como aplicar: 2 a 3 bullets.
+- Resposta direta: 1 a 2 parágrafos.
+- Base legal: 1 a 4 parágrafos com referência normativa.
 - CITAÇÕES: Sempre que afirmar algo, cite no final da frase usando APENAS o alias do trecho.
   Formato exato obrigatório: [[TRECHO_n]]
   Exemplo: "O ICMS é isento neste caso [[TRECHO_2]]."
@@ -733,7 +732,6 @@ FORMATO OBRIGATÓRIO DE SAÍDA:
 EXEMPLO DE RESPOSTA CORRETA:
 - Resposta direta: O contribuinte goiano tem isenção de ICMS na saída de frutas frescas [[TRECHO_1]].
 - Base legal: Conforme o Artigo 7º do RCTE-GO [[TRECHO_2]].
-- Como aplicar: Deve-se emitir a nota fiscal com CFOP adequado [[TRECHO_1]].
 
 CONTEXTO RECUPERADO:
 {contexto}
@@ -741,10 +739,9 @@ CONTEXTO RECUPERADO:
 PERGUNTA: {pergunta}
 
 LEMBRETE OBRIGATÓRIO ANTES DE RESPONDER:
-- Você deve citar o alias [[TRECHO_n]] ao final de cada afirmação relevante.
-- Não use negrito.
-- Responda em bullets.
+- Você deve citar o alias [[TRECHO_n]] ao final de cada raciocínio relevante.
 - Se a resposta não estiver no contexto, responda EXATAMENTE: "{resposta_sem_contexto}". Não use conhecimentos externos à base fornecida. O foco não é aconselhamento jurídico genérico.
+- Responda sempre em Português do Brasil (pt-BR) e leve em conta que a pergunta se aplica ao estado de Goiás.
 
 RESPOSTA:""",
         )
@@ -779,14 +776,12 @@ Regras obrigatórias:
 1. Não invente informação nova e não use conhecimento externo.
 2. Use somente as fontes listadas em FONTES DISPONÍVEIS.
 3. Use apenas os TRECHOS DISPONÍVEIS para validar as afirmações.
-4. Inclua citação no formato [[TRECHO_n]] ao final de cada bullet relevante.
-5. Não use HTML nesta etapa.
-6. Retorne apenas a resposta final.
+4. Inclua citação no formato [[TRECHO_n]] ao final de cada raciocínio relevante.
+5. Retorne apenas a resposta final.
 
 Formato obrigatório desta saída:
-- Resposta direta: 1 a 2 bullets.
-- Base legal: 2 a 4 bullets.
-- Como aplicar: 2 a 3 bullets.
+- Resposta direta: O contribuinte goiano tem isenção de ICMS na saída de frutas frescas [[TRECHO_1]].
+- Base legal: Conforme o Artigo 7º do RCTE-GO [[TRECHO_2]].
 
 PERGUNTA:
 {pergunta}
