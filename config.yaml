@@ -12,7 +12,7 @@ llm:
   ollama_keep_alive: 30m
 
 embeddings:
-  model: all-mpnet-base-v2
+  model: all-MiniLM-L6-v2
   device: cuda
   batch_size: 64
 

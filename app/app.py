@@ -110,6 +110,22 @@ ollama_base_url = st.sidebar.text_input(
     disabled=llm_provider != "ollama",
 )
 
+st.sidebar.markdown("---")
+st.sidebar.subheader("⚙️ Configuração de Pesquisa")
+busca_selecionada = st.sidebar.radio(
+    "Estratégia:",
+    options=["Híbrido (Denso + Esparso)", "Denso (Apenas Embeddings)", "Esparso (Apenas BM25)"],
+    index=0,
+    help="Define como a IA vai procurar os documentos na base de dados."
+)
+
+mapa_modos = {
+    "Híbrido (Denso + Esparso)": "hybrid",
+    "Denso (Apenas Embeddings)": "dense",
+    "Esparso (Apenas BM25)": "sparse"
+}
+modo_escolhido = mapa_modos[busca_selecionada]
+
 with st.spinner("A inicializar os motores de Inteligência Artificial..."):
     rag = load_rag_system(llm_provider, llm_model, ollama_base_url)
 
@@ -141,7 +157,8 @@ if prompt := st.chat_input("Digite sua pergunta sobre tributação..."):
             with st.spinner("Buscando nos pareceres..."):
                 try:
                     retrieval_top_k = _get_int_env("RETRIEVAL_TOP_K", 5)
-                    retrieved_chunks = rag.retrieve(prompt, top_k=retrieval_top_k)
+                    # retrieved_chunks = rag.retrieve(prompt, top_k=retrieval_top_k)
+                    retrieved_chunks = rag.retrieve(prompt, top_k=retrieval_top_k, mode=modo_escolhido)
 
                     answer = rag.generate_answer(prompt, retrieved_chunks)
                     st.markdown(answer, unsafe_allow_html=True)

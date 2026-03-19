@@ -575,7 +575,7 @@ class HybridRAG:
             settings=Settings(anonymized_telemetry=False),
         )
         self.collection = self.chroma_client.get_collection(name="pareceres_tributarios")
-        embedding_model_name = get_config_value("embeddings.model", "all-mpnet-base-v2")
+        embedding_model_name = get_config_value("embeddings.model", "all-MiniLM-L6-v2")
         embedding_device = get_config_value("embeddings.device", "cpu")
         effective_embedding_device = _resolve_embedding_device(embedding_device)
         self.rrf_k = _get_int_env("RRF_K", 60)
@@ -629,15 +629,17 @@ class HybridRAG:
                 "LLM_PROVIDER inválido. Use 'google' ou 'ollama'."
             )
 
-    def retrieve(self, query, top_k=None):
-        """Recupera os chunks mais relevantes via busca híbrida com RRF.
+    def retrieve(self, query, top_k=None, mode="hybrid"):
+        """Recupera os chunks mais relevantes.
 
         Parameters
         ----------
         query : str
             Pergunta do usuário utilizada para recuperar contexto.
         top_k : int, opcional
-            Quantidade final de chunks retornados após a fusão dos rankings.
+            Quantidade final de chunks retornados.
+        mode : str, opcional
+            Modo de busca a ser utilizado: "dense", "sparse" ou "hybrid". Padrão é "hybrid".
 
         Returns
         -------
@@ -653,29 +655,33 @@ class HybridRAG:
         query_embedding = self.embedding_model.encode([query]).tolist()
         dense_results = self.collection.query(
             query_embeddings=query_embedding,
-            n_results=top_k * 2 # Busca mais para fazer a fusão
+            n_results=top_k * 2 
         )
         dense_ids = dense_results['ids'][0]
         
         # 2. Recuperação Sparse (BM25)
         tokenized_query = _safe_tokenize(query.lower())
         bm25_scores = self.bm25.get_scores(tokenized_query)
-        # Pega os top K * 2 índices
         top_sparse_idx = sorted(range(len(bm25_scores)), key=lambda i: bm25_scores[i], reverse=True)[:top_k * 2]
         sparse_ids = [self.chunks_data[i]["chunk_id"] for i in top_sparse_idx]
 
-        # 3. Fusão RRF (Reciprocal Rank Fusion)
-        rrf_scores = {}
-        k_rrf = self.rrf_k
-        
-        for rank, doc_id in enumerate(dense_ids):
-            rrf_scores[doc_id] = rrf_scores.get(doc_id, 0) + 1 / (k_rrf + rank + 1)
+        # 3. Seleção do Modo
+        if mode == "dense":
+            final_top_ids = dense_ids[:top_k]
+        elif mode == "sparse":
+            final_top_ids = sparse_ids[:top_k]
+        else:
+            # Fusão RRF original
+            rrf_scores = {}
+            k_rrf = self.rrf_k
             
-        for rank, doc_id in enumerate(sparse_ids):
-            rrf_scores[doc_id] = rrf_scores.get(doc_id, 0) + 1 / (k_rrf + rank + 1)
+            for rank, doc_id in enumerate(dense_ids):
+                rrf_scores[doc_id] = rrf_scores.get(doc_id, 0) + 1 / (k_rrf + rank + 1)
+                
+            for rank, doc_id in enumerate(sparse_ids):
+                rrf_scores[doc_id] = rrf_scores.get(doc_id, 0) + 1 / (k_rrf + rank + 1)
 
-        # Ordena e pega os K finais
-        final_top_ids = sorted(rrf_scores.keys(), key=lambda x: rrf_scores[x], reverse=True)[:top_k]
+            final_top_ids = sorted(rrf_scores.keys(), key=lambda x: rrf_scores[x], reverse=True)[:top_k]
         
         # Monta a lista de contextos recuperados
         chunk_by_id = {chunk["chunk_id"]: chunk for chunk in self.chunks_data}
