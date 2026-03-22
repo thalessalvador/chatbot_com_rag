@@ -87,7 +87,7 @@ def calcular_recall(golden_file, k=5):
         
 if __name__ == "__main__":
     # Caminho ajustado para rodar a partir da raiz do projeto
-    golden_path = "Golden_Set_Preenchido_pelo_RAG.xlsx" 
+    golden_path = "Golden_Set_Preenchido_pelo_RAG_Reranked.xlsx" 
     
     if os.path.exists(golden_path):
         calcular_recall(golden_path, k=5)

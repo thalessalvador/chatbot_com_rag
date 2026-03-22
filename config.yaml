@@ -26,8 +26,8 @@ scraping:
   max_docs: 9999
   timeout_seconds: 30
   user_agent: chatbot-rag-scraper/1.0
-  delay_min_seconds: 3
-  delay_max_seconds: 10
+  delay_min_seconds: 0
+  delay_max_seconds: 1
   clean_raw_on_start: true
 
 transform:
