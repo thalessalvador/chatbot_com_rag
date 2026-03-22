@@ -8,7 +8,7 @@ os.environ.setdefault("ANONYMIZED_TELEMETRY", "FALSE")
 import chromadb
 import re
 from chromadb.config import Settings
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import CrossEncoder, SentenceTransformer
 import nltk
 from dotenv import load_dotenv
 try:
@@ -235,6 +235,50 @@ def _resolve_embedding_device(requested_device):
 
     logger.warning("EMBEDDING_DEVICE=cuda, mas PyTorch sem CUDA. Usando CPU.")
     return "cpu"
+
+
+def _get_bool_config(path, default_value):
+    """Lê um valor booleano da configuração com fallback seguro.
+
+    Parameters
+    ----------
+    path : str
+        Caminho pontuado no `config.yaml`.
+    default_value : bool
+        Valor padrão usado quando a chave não existe.
+
+    Returns
+    -------
+    bool
+        Valor booleano normalizado para uso interno.
+    """
+    raw = get_config_value(path, default_value)
+    if raw is None:
+        return default_value
+    if isinstance(raw, bool):
+        return raw
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _get_int_config(path, default_value):
+    """Lê um valor inteiro da configuração com fallback seguro.
+
+    Parameters
+    ----------
+    path : str
+        Caminho pontuado no `config.yaml`.
+    default_value : int
+        Valor padrão usado quando a chave não existe ou é inválida.
+
+    Returns
+    -------
+    int
+        Valor inteiro normalizado para uso interno.
+    """
+    try:
+        return int(get_config_value(path, default_value))
+    except (TypeError, ValueError):
+        return default_value
 
 
 def _safe_tokenize(text):
@@ -578,6 +622,28 @@ class HybridRAG:
         self.rrf_k = _get_int_env("RRF_K", 60)
         self.default_top_k = _get_int_env("RETRIEVAL_TOP_K", 5)
         self.embedding_model = SentenceTransformer(embedding_model_name, device=effective_embedding_device)
+
+        reranker_enabled = _get_bool_config("retrieval.reranking.enabled", False)
+        self.reranker = None
+        self.reranker_enabled = reranker_enabled
+        self.reranker_model_name = None
+        self.reranker_candidate_pool_size = max(
+            self.default_top_k,
+            _get_int_config("retrieval.reranking.candidate_pool_size", 20),
+        )
+        if reranker_enabled:
+            reranker_model_name = get_config_value("retrieval.reranking.model")
+            reranker_device = _resolve_embedding_device(
+                get_config_value("retrieval.reranking.device", "cpu")
+            )
+            self.reranker = CrossEncoder(reranker_model_name, device=reranker_device)
+            self.reranker_model_name = reranker_model_name
+            logger.info(
+                "Reranker habilitado | model=%s | device=%s | candidate_pool_size=%s",
+                reranker_model_name,
+                reranker_device,
+                self.reranker_candidate_pool_size,
+            )
         
         # Sparse
         with open(bm25_path, 'rb') as f:
@@ -626,6 +692,57 @@ class HybridRAG:
                 "LLM_PROVIDER inválido. Use 'google' ou 'ollama'."
             )
 
+    def _rerank_hybrid_candidates(self, query, candidate_ids, chunk_by_id, top_k):
+        """Reordena candidatos híbridos usando um modelo de reranking.
+
+        Parameters
+        ----------
+        query : str
+            Pergunta original do usuário.
+        candidate_ids : list[str]
+            Identificadores dos chunks candidatos vindos da fusão RRF.
+        chunk_by_id : dict[str, dict]
+            Mapeamento de `chunk_id` para o chunk completo.
+        top_k : int
+            Quantidade final de resultados a retornar.
+
+        Returns
+        -------
+        list[str]
+            Lista de `chunk_id` reranqueados, limitada a `top_k`.
+        """
+        if not self.reranker or not candidate_ids:
+            return candidate_ids[:top_k]
+
+        pairs = []
+        valid_ids = []
+        for chunk_id in candidate_ids:
+            chunk = chunk_by_id.get(chunk_id)
+            if not chunk:
+                continue
+            chunk_text = chunk.get("texto_bruto") or chunk.get("texto") or ""
+            if not chunk_text.strip():
+                continue
+            valid_ids.append(chunk_id)
+            pairs.append([query, chunk_text])
+
+        if not pairs:
+            return candidate_ids[:top_k]
+
+        scores = self.reranker.predict(pairs)
+        scored_ids = sorted(
+            zip(valid_ids, scores),
+            key=lambda item: float(item[1]),
+            reverse=True,
+        )
+        logger.info(
+            "Reranking aplicado | candidatos=%s | top_k=%s | melhores=%s",
+            len(valid_ids),
+            top_k,
+            [chunk_id for chunk_id, _ in scored_ids[:top_k]],
+        )
+        return [chunk_id for chunk_id, _ in scored_ids[:top_k]]
+
     def retrieve(self, query, top_k=None, mode="hybrid"):
         """Recupera os chunks mais relevantes.
 
@@ -644,23 +761,35 @@ class HybridRAG:
             Lista de chunks recuperados. Cada item contém `chunk_id`, `doc_id`,
             `texto` e `metadados`.
         """
-        
+
         if top_k is None:
             top_k = self.default_top_k
+        dense_sparse_pool_size = top_k * 2
+        hybrid_candidate_pool_size = (
+            max(top_k, self.reranker_candidate_pool_size)
+            if self.reranker_enabled
+            else dense_sparse_pool_size
+        )
 
         # 1. Recuperação Dense
         query_embedding = self.embedding_model.encode([query]).tolist()
         dense_results = self.collection.query(
             query_embeddings=query_embedding,
-            n_results=top_k * 2 
+            n_results=max(dense_sparse_pool_size, hybrid_candidate_pool_size),
         )
         dense_ids = dense_results['ids'][0]
-        
+
         # 2. Recuperação Sparse (BM25)
         tokenized_query = _safe_tokenize(query.lower())
         bm25_scores = self.bm25.get_scores(tokenized_query)
-        top_sparse_idx = sorted(range(len(bm25_scores)), key=lambda i: bm25_scores[i], reverse=True)[:top_k * 2]
+        top_sparse_idx = sorted(
+            range(len(bm25_scores)),
+            key=lambda i: bm25_scores[i],
+            reverse=True,
+        )[:max(dense_sparse_pool_size, hybrid_candidate_pool_size)]
         sparse_ids = [self.chunks_data[i]["chunk_id"] for i in top_sparse_idx]
+
+        chunk_by_id = {chunk["chunk_id"]: chunk for chunk in self.chunks_data}
 
         # 3. Seleção do Modo
         if mode == "dense":
@@ -678,10 +807,23 @@ class HybridRAG:
             for rank, doc_id in enumerate(sparse_ids):
                 rrf_scores[doc_id] = rrf_scores.get(doc_id, 0) + 1 / (k_rrf + rank + 1)
 
-            final_top_ids = sorted(rrf_scores.keys(), key=lambda x: rrf_scores[x], reverse=True)[:top_k]
-        
+            fused_candidate_ids = sorted(
+                rrf_scores.keys(),
+                key=lambda x: rrf_scores[x],
+                reverse=True,
+            )[:hybrid_candidate_pool_size]
+
+            if self.reranker_enabled:
+                final_top_ids = self._rerank_hybrid_candidates(
+                    query=query,
+                    candidate_ids=fused_candidate_ids,
+                    chunk_by_id=chunk_by_id,
+                    top_k=top_k,
+                )
+            else:
+                final_top_ids = fused_candidate_ids[:top_k]
+
         # Monta a lista de contextos recuperados
-        chunk_by_id = {chunk["chunk_id"]: chunk for chunk in self.chunks_data}
         recovered_chunks = [chunk_by_id[cid] for cid in final_top_ids if cid in chunk_by_id]
         return recovered_chunks
 

@@ -22,6 +22,15 @@ retrieval:
   top_k: 5
   rrf_k: 60
   chroma_add_batch_size: 512
+  reranking:
+    # Quando ativado, aplica um reranker apenas no modo hybrid.
+    # O fluxo fica assim: dense + sparse -> RRF -> reranker -> top_k final.
+    # `candidate_pool_size` define quantos candidatos da fusao RRF vao para o reranker.
+    # Em geral, valores entre 10 e 30 sao um bom ponto de partida.
+    enabled: false
+    model: BAAI/bge-reranker-v2-m3
+    device: cuda
+    candidate_pool_size: 20
 
 evaluation:
   golden_file: Golden_Set_Preenchido_pelo_RAG_Reranked.xlsx

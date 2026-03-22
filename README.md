@@ -71,6 +71,36 @@ O arquivo do Golden Set e o valor padrao de `Recall@k` tambem ficam centralizado
 A resposta padrao de ausencia de contexto fica em:
 - `rag.no_context_response`
 
+### Reranking opcional
+O reranking fica em `config.yaml -> retrieval.reranking`.
+Ele permanece desligado por padrao (`enabled: false`) e deve ser ativado apenas para experimento ou comparacao de metricas.
+
+Com `enabled: true`, o fluxo de recuperacao no modo `hybrid` passa a ser:
+- busca dense;
+- busca sparse;
+- fusao RRF;
+- reranking dos melhores candidatos;
+- corte final em `top_k`.
+
+Parametros:
+- `enabled`: ativa ou desativa o reranking;
+- `model`: modelo Hugging Face usado no reranker;
+- `device`: `cpu` ou `cuda`;
+- `candidate_pool_size`: quantidade de candidatos vindos da fusao RRF que serao reordenados.
+
+Exemplo:
+
+```yaml
+retrieval:
+  top_k: 5
+  rrf_k: 60
+  reranking:
+    enabled: false
+    model: BAAI/bge-reranker-v2-m3
+    device: cuda
+    candidate_pool_size: 20
+```
+
 ## Instalar e rodar (Windows / PowerShell)
 
 ```powershell
@@ -131,6 +161,7 @@ URL local: `http://localhost:8501`
 - Executa a avaliacao do retriever com a metrica `Recall@k`.
 - Le o Golden Set em Excel informado por `--golden-file`.
 - Testa os modos `dense`, `sparse` e `hybrid`.
+- Se `retrieval.reranking.enabled=true`, o reranking so afeta o modo `hybrid`.
 - Exibe e registra no log o resultado final por modo.
 - Usa os valores padrao definidos em `config.yaml -> evaluation`.
 

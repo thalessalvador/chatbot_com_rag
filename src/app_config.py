@@ -66,6 +66,12 @@ def _default_config() -> dict[str, Any]:
             "top_k": 5,
             "rrf_k": 60,
             "chroma_add_batch_size": 512,
+            "reranking": {
+                "enabled": False,
+                "model": "BAAI/bge-reranker-v2-m3",
+                "device": "cuda",
+                "candidate_pool_size": 20,
+            },
         },
         "evaluation": {
             "golden_file": "Golden_Set_Preenchido_pelo_RAG_Reranked.xlsx",
