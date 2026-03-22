@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import time
+import urllib.parse
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote, urljoin, urlparse, urlsplit, urlunsplit
@@ -16,6 +17,7 @@ from urllib.parse import quote, urljoin, urlparse, urlsplit, urlunsplit
 os.environ.setdefault("ANONYMIZED_TELEMETRY", "FALSE")
 
 import chromadb
+import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 from chromadb.config import Settings
@@ -44,10 +46,11 @@ TRANSFORM_MANIFEST_PATH = TRANSFORMATION_DIR / "transform_manifest.jsonl"
 CHUNKS_PATH = PROCESSED_DIR / "chunks.json"
 CHROMA_DB_DIR = str(INDEX_DIR / "chroma_db")
 BM25_INDEX_PATH = INDEX_DIR / "bm25_index.pkl"
+DEFAULT_GOLDEN_SET_PATH = Path(get_config_value("evaluation.golden_file"))
 
 # Configurações de modelos
-EMBEDDING_MODEL = get_config_value("embeddings.model", "all-mpnet-base-v2")
-EMBEDDING_DEVICE = get_config_value("embeddings.device", "cpu")
+EMBEDDING_MODEL = get_config_value("embeddings.model")
+EMBEDDING_DEVICE = get_config_value("embeddings.device")
 
 LEGAL_SECTION_PATTERNS = [
     r"^\s*#+\s*(EMENTA|RELAT[ÓO]RIO|FUNDAMENTA[ÇC][ÃA]O|CONCLUS[ÃA]O|DISPOSITIVO)\b",
@@ -1450,21 +1453,119 @@ def run_index():
     logger.info("Indexação concluída com sucesso.")
 
 
-def run_evaluate():
-    """Executa avaliação do retriever (placeholder da fase atual).
+def _extract_expected_filename(path_or_url):
+    """Extrai o nome do arquivo esperado a partir do Golden Set.
 
     Parameters
     ----------
-    None
-        Esta etapa será expandida nas próximas fases do roadmap.
+    path_or_url : str | None
+        Caminho, URL ou valor bruto da coluna `documento_esperado`.
+
+    Returns
+    -------
+    str
+        Nome do arquivo decodificado para comparação com a fonte recuperada.
+        Retorna string vazia quando o valor não é utilizável.
+    """
+    if pd.isna(path_or_url) or path_or_url in {"Nenhum", "Erro", "", None}:
+        return ""
+    filename = str(path_or_url).split("/")[-1]
+    return urllib.parse.unquote(filename)
+
+
+def run_evaluate(golden_file=None, k=5):
+    """Executa avaliação real de Recall@k para dense, sparse e hybrid.
+
+    Parameters
+    ----------
+    golden_file : str | None, opcional
+        Caminho para o arquivo Excel do Golden Set. Quando `None`, usa o
+        arquivo padrão na raiz do projeto.
+    k : int, opcional
+        Quantidade de documentos considerada no cálculo do Recall@k.
 
     Returns
     -------
     None
-        Apenas registra status da implementação de avaliação.
+        Imprime e registra os resultados de Recall@k por modo de busca.
     """
-    logger.info("Executando avaliação do retriever no Golden Set...")
-    logger.info("Implementação de Recall@k pendente de conexão com Golden Set.")
+    golden_path = Path(golden_file) if golden_file else DEFAULT_GOLDEN_SET_PATH
+
+    logger.info("Executando avaliação do retriever no Golden Set.")
+    logger.info("Arquivo do Golden Set: %s", golden_path)
+    logger.info("Métrica configurada: Recall@%s", k)
+
+    if not golden_path.exists():
+        logger.error("Golden Set não encontrado: %s", golden_path)
+        print(f"ERRO: ficheiro de Golden Set não encontrado: {golden_path}")
+        return
+
+    if not Path(CHROMA_DB_DIR).exists() or not BM25_INDEX_PATH.exists():
+        logger.error(
+            "Índices não encontrados para avaliação. Chroma: %s | BM25: %s",
+            CHROMA_DB_DIR,
+            BM25_INDEX_PATH,
+        )
+        print("ERRO: os índices não foram encontrados. Rode `--step index` antes da avaliação.")
+        return
+
+    try:
+        from src.rag_core import HybridRAG
+    except ImportError:
+        from rag_core import HybridRAG
+
+    logger.info("Inicializando HybridRAG para avaliação.")
+    rag = HybridRAG(chroma_path=CHROMA_DB_DIR, bm25_path=str(BM25_INDEX_PATH))
+
+    df = pd.read_excel(golden_path)
+    modos = ["dense", "sparse", "hybrid"]
+    resultados = {modo: {"acertos": 0, "total_validos": 0} for modo in modos}
+
+    logger.info("Total de linhas no Golden Set: %s", len(df))
+    show_progress = _get_bool_env("SHOW_PROGRESS", True)
+
+    for _, row in tqdm(
+        df.iterrows(),
+        total=len(df),
+        desc=f"Avaliando Recall@{k}",
+        disable=not show_progress,
+    ):
+        pergunta = row.get("Pergunta", "")
+        esperado_bruto = row.get("documento_esperado", "")
+        esperado = _extract_expected_filename(esperado_bruto)
+
+        if not pergunta or not esperado:
+            continue
+
+        for modo in modos:
+            resultados[modo]["total_validos"] += 1
+            chunks_recuperados = rag.retrieve(pergunta, top_k=k, mode=modo)
+
+            acertou = False
+            for chunk in chunks_recuperados:
+                fonte_chunk = _extract_expected_filename(
+                    chunk.get("metadados", {}).get("fonte", "")
+                )
+                chunk_id = chunk.get("chunk_id", "")
+                if esperado in fonte_chunk or esperado in chunk_id:
+                    acertou = True
+                    break
+
+            if acertou:
+                resultados[modo]["acertos"] += 1
+
+    print("-" * 40)
+    print(f"RESULTADOS DA AVALIAÇÃO - Recall@{k}")
+    print("-" * 40)
+    logger.info("Resumo final da avaliação Recall@%s:", k)
+
+    for modo in modos:
+        acertos = resultados[modo]["acertos"]
+        total = resultados[modo]["total_validos"]
+        recall = (acertos / total) * 100 if total > 0 else 0.0
+        linha = f"Modo {modo.upper():<7} -> Recall@{k}: {recall:.1f}% ({acertos}/{total} acertos)"
+        print(linha)
+        logger.info(linha)
 
 
 if __name__ == "__main__":
@@ -1473,6 +1574,17 @@ if __name__ == "__main__":
         "--step",
         choices=["scraping", "transform", "ingest", "index", "evaluate"],
         required=True,
+    )
+    parser.add_argument(
+        "--golden-file",
+        default=str(DEFAULT_GOLDEN_SET_PATH),
+        help="Caminho para o arquivo Excel do Golden Set usado na avaliação.",
+    )
+    parser.add_argument(
+        "--k",
+        type=int,
+        default=int(get_config_value("evaluation.recall_k")),
+        help="Valor de k para a métrica Recall@k na etapa de avaliação.",
     )
     args = parser.parse_args()
 
@@ -1485,4 +1597,4 @@ if __name__ == "__main__":
     elif args.step == "index":
         run_index()
     elif args.step == "evaluate":
-        run_evaluate()
+        run_evaluate(golden_file=args.golden_file, k=args.k)

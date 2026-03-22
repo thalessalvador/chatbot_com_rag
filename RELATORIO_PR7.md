@@ -1,42 +1,65 @@
+# Relatorio de Validacao e Avaliacao do RAG (PR5, PR6 e PR7)
 
-# Relatório de Validação e Avaliação do RAG (PR5, PR6 e PR7)
+## 1. Visao Geral
 
-## 1. Visão Geral
+Este documento apresenta os resultados da avaliacao formal do sistema de Retrieval-Augmented Generation (RAG) para Pareceres Tributarios da SEFAZ-GO. O objetivo desta fase foi medir matematicamente a qualidade da recuperacao de informacao (PR5), consolidar a exposicao dos modos de busca na interface (PR6) e registrar os artefatos finais da etapa experimental (PR7).
 
-Este documento apresenta os resultados da avaliação formal do sistema de Retrieval-Augmented Generation (RAG) para Pareceres Tributários da SEFAZ-GO. O objetivo desta fase foi medir matematicamente a precisão da recuperação de informação (PR5) e expor as opções tecnológicas na interface final (PR6).
+## 2. Artefatos Produzidos
 
-## 2. Artefactos Produzidos (Golden Set)
+Foi utilizado um Golden Set em Excel com perguntas de negocio e documento esperado, consumido diretamente pela etapa:
 
-Foi consolidado um **Golden Set** composto por 27 perguntas reais de negócio formuladas por especialistas (Auditores).
+```powershell
+python src/pipeline.py --step evaluate --golden-file Golden_Set_Preenchido_pelo_RAG_Reranked.xlsx --k 5
+```
 
-Para permitir a avaliação empírica, foi criada uma rotina de _Bootstrapping_ que cruzou as "Respostas Esperadas" com a base vetorial, identificando automaticamente o Documento/Parecer de origem correto para cada uma das 27 perguntas, servindo como "Gabarito" (`data/Golden_Set_Preenchido_pelo_RAG.xlsx`).
+Na execucao validada nesta fase, a avaliacao considerou 25 perguntas com gabarito utilizavel.
 
-## 3. Avaliação Formal (PR5 - Recall@5)
+## 3. Estrategias Avaliadas
 
-Para avaliar a qualidade do motor de pesquisa, utilizámos a métrica **Recall@5** (percentagem de vezes que o documento correto apareceu entre os 5 primeiros resultados). Foram testadas três estratégias diferentes:
+Foram comparadas tres estrategias de recuperacao:
 
--   **Denso (Embeddings):** Pesquisa semântica usando o modelo `all-MiniLM-L6-v2` (384 dimensões).
-    
--   **Esparso (BM25):** Pesquisa lexical clássica baseada na frequência exata de termos e palavras-chave.
-    
--   **Híbrido (RRF):** Combinação matemática de ambos os métodos utilizando a técnica _Reciprocal Rank Fusion_.
-    
+- Denso (embeddings): recuperacao semantica por vetores.
+- Esparso (BM25): recuperacao lexical por frequencia exata de termos.
+- Hibrido (RRF): combinacao entre denso e esparso por Reciprocal Rank Fusion.
 
-### Resultados Obtidos:
+## 4. Baseline Confirmada
 
--   **Modo Denso:** Recall@5 de **[18.5]%**
-    
--   **Modo Esparso:** Recall@5 de **[11.1]%**
-    
--   **Modo Híbrido:** Recall@5 de **[22.2]%**
-    
+A baseline revalidada com o modelo `all-MiniLM-L6-v2` produziu:
 
-### Conclusão Técnica:
+- Modo Denso: Recall@5 de 24,0% (6/25 acertos)
+- Modo Esparso: Recall@5 de 56,0% (14/25 acertos)
+- Modo Hibrido: Recall@5 de 56,0% (14/25 acertos)
 
-A estratégia híbrida demonstrou ser a mais eficaz. Ela compensou a falta de compreensão de contexto do BM25 (esparso) e as eventuais falhas do modelo denso em identificar códigos de leis e artigos exatos, garantindo a maior taxa de acerto e consistência do projeto.
+Esses valores substituem os numeros anteriormente anotados neste relatorio, que nao correspondiam ao mesmo cenario experimental hoje reprodutivel via linha de comando.
 
-## 4. Implementação na Interface (PR6)
+## 5. Experimento com Embedding Juridico
 
-Com base na robustez arquitetural desenvolvida na camada `rag_core`, a interface do Streamlit (`app.py`) foi atualizada. Foi adicionado um seletor na barra lateral que expõe, de forma transparente, as 3 estratégias de pesquisa ao utilizador final, permitindo flexibilidade em consultas muito complexas.
+Foi realizado um experimento controlado alterando apenas o modelo de embeddings para:
 
-_Artefactos e métricas validados e integrados no repositório principal._
+- `stjiris/bert-large-portuguese-cased-legal-tsdae`
+
+Resultado obtido:
+
+- Modo Denso: Recall@5 de 12,0% (3/25 acertos)
+- Modo Esparso: Recall@5 de 56,0% (14/25 acertos)
+- Modo Hibrido: Recall@5 de 64,0% (16/25 acertos)
+
+## 6. Conclusao Tecnica
+
+O experimento mostrou um comportamento relevante:
+
+- O novo embedding piorou a busca densa isolada.
+- O modo esparso permaneceu estavel.
+- O modo hibrido melhorou de 56,0% para 64,0%.
+
+Portanto, embora o embedding `stjiris/bert-large-portuguese-cased-legal-tsdae` nao seja superior ao baseline no modo denso, ele melhorou a recuperacao final no modo hibrido, que e o modo mais importante para o projeto.
+
+## 7. Implementacao na Interface
+
+A interface Streamlit expoe os tres modos de busca ao utilizador final:
+
+- Hibrido
+- Denso
+- Esparso
+
+Isso permite inspecao pratica dos comportamentos do retriever e alinhamento entre avaliacao formal e uso interativo.

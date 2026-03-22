@@ -32,10 +32,7 @@ from langchain_core.prompts import PromptTemplate
 load_dotenv()
 logger = get_logger(__name__)
 NO_CONTEXT_RESPONSE = str(
-    get_config_value(
-        "rag.no_context_response",
-        "Não encontrei informações na base de conhecimento para responder a esta pergunta.",
-    )
+    get_config_value("rag.no_context_response")
 )
 
 
@@ -575,8 +572,8 @@ class HybridRAG:
             settings=Settings(anonymized_telemetry=False),
         )
         self.collection = self.chroma_client.get_collection(name="pareceres_tributarios")
-        embedding_model_name = get_config_value("embeddings.model", "all-MiniLM-L6-v2")
-        embedding_device = get_config_value("embeddings.device", "cpu")
+        embedding_model_name = get_config_value("embeddings.model")
+        embedding_device = get_config_value("embeddings.device")
         effective_embedding_device = _resolve_embedding_device(embedding_device)
         self.rrf_k = _get_int_env("RRF_K", 60)
         self.default_top_k = _get_int_env("RETRIEVAL_TOP_K", 5)
@@ -588,7 +585,7 @@ class HybridRAG:
             self.bm25 = data['bm25']
             self.chunks_data = data['chunks']
 
-        provider = (llm_provider or get_config_value("llm.provider", "google")).strip().lower()
+        provider = (llm_provider or get_config_value("llm.provider")).strip().lower()
         self.llm_provider = provider
         self.llm_model = None
 
@@ -599,19 +596,19 @@ class HybridRAG:
                 raise ImportError(
                     "Para usar LLM_PROVIDER=google, instale: pip install langchain-google-genai"
                 ) from exc
-            model_name = llm_model or get_config_value("llm.google_model", "gemini-2.5-flash")
+            model_name = llm_model or get_config_value("llm.google_model")
             temperature = _get_float_env("GOOGLE_TEMPERATURE", 0.0)
             self.llm_model = model_name
             self.llm = ChatGoogleGenerativeAI(model=model_name, temperature=temperature)
         elif provider == "ollama":
-            model_name = llm_model or get_config_value("llm.ollama_model", "llama3.1:8b")
-            base_url = ollama_base_url or get_config_value("llm.ollama_base_url", "http://localhost:11434")
+            model_name = llm_model or get_config_value("llm.ollama_model")
+            base_url = ollama_base_url or get_config_value("llm.ollama_base_url")
             ollama_temperature = _get_float_env("OLLAMA_TEMPERATURE", 0.0)
             ollama_num_ctx = _get_int_env("OLLAMA_NUM_CTX", 2048)
             ollama_num_predict = _get_int_env("OLLAMA_NUM_PREDICT", 384)
             ollama_num_gpu = _get_int_env("OLLAMA_NUM_GPU", 1)
             ollama_num_thread = _get_int_env("OLLAMA_NUM_THREAD", 0)
-            ollama_keep_alive = get_config_value("llm.ollama_keep_alive", "30m")
+            ollama_keep_alive = get_config_value("llm.ollama_keep_alive")
             self.llm_model = model_name
 
             self.llm = ChatOllama(

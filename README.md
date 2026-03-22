@@ -35,6 +35,7 @@ logs/
 Todos os parametros operacionais ficam em `config.yaml`, incluindo:
 - `llm` (provider, modelo, URL do Ollama, parametros de geracao);
 - `embeddings`;
+- `evaluation`;
 - `retrieval`;
 - `scraping`;
 - `transform`;
@@ -48,6 +49,27 @@ Atualmente o `.env` e usado somente para chave da API Google:
 ```env
 GOOGLE_API_KEY=sua_chave_aqui
 ```
+
+### Modelo de embeddings
+O modelo de embeddings ativo e controlado por `config.yaml -> embeddings.model`.
+
+No estado atual do projeto, o modelo configurado e:
+- `stjiris/bert-large-portuguese-cased-legal-tsdae`
+
+Sempre que `embeddings.model` for alterado em `config.yaml`, e necessario reexecutar:
+
+```powershell
+python src/pipeline.py --step index
+```
+
+Isso recria o indice vetorial do ChromaDB com o novo espaco vetorial.
+
+O arquivo do Golden Set e o valor padrao de `Recall@k` tambem ficam centralizados em:
+- `evaluation.golden_file`
+- `evaluation.recall_k`
+
+A resposta padrao de ausencia de contexto fica em:
+- `rag.no_context_response`
 
 ## Instalar e rodar (Windows / PowerShell)
 
@@ -68,6 +90,7 @@ python src/pipeline.py --step scraping
 python src/pipeline.py --step transform
 python src/pipeline.py --step ingest
 python src/pipeline.py --step index
+python src/pipeline.py --step evaluate --golden-file Golden_Set_Preenchido_pelo_RAG_Reranked.xlsx --k 5
 ```
 
 Depois subir o chatbot:
@@ -102,9 +125,25 @@ URL local: `http://localhost:8501`
 - Gera embeddings Dense (SentenceTransformers).
 - Grava indice vetorial no ChromaDB (`data/index/chroma_db`).
 - Gera indice BM25 (`data/index/bm25_index.pkl`).
+- Deve ser reexecutado sempre que `embeddings.model` for alterado.
 
 ### `--step evaluate`
-- Etapa ainda placeholder no estado atual.
+- Executa a avaliacao do retriever com a metrica `Recall@k`.
+- Le o Golden Set em Excel informado por `--golden-file`.
+- Testa os modos `dense`, `sparse` e `hybrid`.
+- Exibe e registra no log o resultado final por modo.
+- Usa os valores padrao definidos em `config.yaml -> evaluation`.
+
+Exemplo:
+
+```powershell
+python src/pipeline.py --step evaluate --golden-file Golden_Set_Preenchido_pelo_RAG_Reranked.xlsx --k 5
+```
+
+Pre-requisitos:
+- indice vetorial ja gerado em `data/index/chroma_db`;
+- indice BM25 ja gerado em `data/index/bm25_index.pkl`;
+- arquivo do Golden Set disponivel na raiz do projeto ou informado via `--golden-file`.
 
 ## LLMs suportados
 

@@ -9,10 +9,12 @@ llm:
   ollama_num_predict: 2048
   ollama_num_gpu: 9999
   ollama_num_thread: 0
-  ollama_keep_alive: 30m
+  ollama_keep_alive: 5m
 
 embeddings:
-  model: all-MiniLM-L6-v2
+  # Modelo de embeddings usado na indexacao Dense e nas consultas semanticas.
+  # Alterar este valor exige reexecutar `--step index` para regenerar o ChromaDB.
+  model: stjiris/bert-large-portuguese-cased-legal-tsdae
   device: cuda
   batch_size: 64
 
@@ -20,6 +22,10 @@ retrieval:
   top_k: 5
   rrf_k: 60
   chroma_add_batch_size: 512
+
+evaluation:
+  golden_file: Golden_Set_Preenchido_pelo_RAG_Reranked.xlsx
+  recall_k: 5
 
 scraping:
   base_url: https://appasp.economia.go.gov.br/pareceres/

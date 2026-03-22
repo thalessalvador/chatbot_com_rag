@@ -13,10 +13,7 @@ from src.logging_config import get_logger
 load_dotenv()
 logger = get_logger(__name__)
 NO_CONTEXT_RESPONSE = str(
-    get_config_value(
-        "rag.no_context_response",
-        "Não encontrei informações na base de conhecimento para responder a esta pergunta.",
-    )
+    get_config_value("rag.no_context_response")
 )
 
 
@@ -95,18 +92,18 @@ st.sidebar.header("Configuração do LLM")
 llm_provider = st.sidebar.selectbox(
     "Provedor",
     options=["google", "ollama"],
-    index=0 if str(get_config_value("llm.provider", "google")).lower() == "google" else 1,
+    index=0 if str(get_config_value("llm.provider")).lower() == "google" else 1,
 )
 
 default_model = (
-    get_config_value("llm.google_model", "gemini-2.5-flash")
+    get_config_value("llm.google_model")
     if llm_provider == "google"
-    else get_config_value("llm.ollama_model", "llama3.1:8b")
+    else get_config_value("llm.ollama_model")
 )
 llm_model = st.sidebar.text_input("Modelo", value=default_model)
 ollama_base_url = st.sidebar.text_input(
     "Ollama Base URL",
-    value=get_config_value("llm.ollama_base_url", "http://localhost:11434"),
+    value=get_config_value("llm.ollama_base_url"),
     disabled=llm_provider != "ollama",
 )
 
