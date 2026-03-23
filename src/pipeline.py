@@ -370,7 +370,12 @@ def _read_jsonl(path):
     return rows
 
 
-def _discover_document_links(base_url, timeout_seconds, user_agent):
+def _scraping_terminal(msg: str) -> None:
+    """Imprime linha no terminal para a etapa de scraping (visível mesmo com tqdm)."""
+    print(f"[scraping] {msg}", flush=True)
+
+
+def _discover_document_links(base_url, timeout_seconds, user_agent, *, show_progress=True):
     """Descobre links de documentos na página base de pareceres.
 
     Parameters
@@ -381,6 +386,8 @@ def _discover_document_links(base_url, timeout_seconds, user_agent):
         Tempo máximo de espera para requisições HTTP.
     user_agent : str
         User-Agent utilizado nas requisições.
+    show_progress : bool, optional
+        Quando True, exibe barra de progresso ao varrer os links do HTML.
 
     Returns
     -------
@@ -401,7 +408,20 @@ def _discover_document_links(base_url, timeout_seconds, user_agent):
     docs = []
     seen = set()
 
-    for anchor in soup.find_all("a", href=True):
+    anchors = soup.find_all("a", href=True)
+    link_iter = (
+        tqdm(
+            anchors,
+            desc="Analisando links",
+            unit="lnk",
+            disable=not show_progress,
+            bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]",
+        )
+        if show_progress
+        else anchors
+    )
+
+    for anchor in link_iter:
         href = anchor["href"].strip()
         full_url = _normalize_document_url(base_url, href)
         if not full_url:
@@ -446,6 +466,9 @@ def run_scraping():
         Baixa arquivos para `data/raw` e registra manifesto de scraping.
     """
     _ensure_dirs()
+    show_progress = _get_bool_env("SHOW_PROGRESS", True)
+
+    _scraping_terminal("Progresso 1/4 em andamento — preparação (diretórios e parâmetros)")
 
     base_url = get_config_value("scraping.base_url", "https://appasp.economia.go.gov.br/pareceres/")
     max_docs = _get_int_env("SCRAPING_MAX_DOCS", 100)
@@ -456,16 +479,26 @@ def run_scraping():
     logger.info("Configuração scraping: base_url=%s max_docs=%s", base_url, max_docs)
 
     if _get_bool_env("SCRAPING_CLEAN_RAW_ON_START", False):
+        _scraping_terminal("Limpeza da pasta raw em andamento…")
         removed = _clean_raw_dir()
         logger.info("Limpeza de raw ativada: %s arquivo(s) removido(s) em %s.", removed, RAW_DIR)
+        _scraping_terminal(f"Limpeza concluída: {removed} arquivo(s) removido(s).")
 
+    _scraping_terminal("Progresso 2/4 em andamento — descoberta de links na página")
     try:
-        discovered = _discover_document_links(base_url, timeout_seconds, user_agent)
+        discovered = _discover_document_links(
+            base_url, timeout_seconds, user_agent, show_progress=show_progress
+        )
     except Exception as exc:
+        _scraping_terminal(f"ERRO na descoberta de links: {type(exc).__name__}: {exc}")
         logger.exception("Falha ao descobrir links de documentos: %s", exc)
         return
 
     discovered = discovered[:max_docs]
+    _scraping_terminal(
+        f"Descoberta concluída: {len(discovered)} documento(s) na fila (limite max_docs={max_docs})."
+    )
+
     delay_min_seconds = _get_int_env("SCRAPING_DELAY_MIN_SECONDS", 3)
     delay_max_seconds = _get_int_env("SCRAPING_DELAY_MAX_SECONDS", 10)
     if delay_max_seconds < delay_min_seconds:
@@ -478,52 +511,93 @@ def run_scraping():
     }
     manifest_rows = []
 
-    for idx, entry in enumerate(
-        tqdm(discovered, desc="Baixando documentos", disable=not _get_bool_env("SHOW_PROGRESS", True))
-    ):
-        url = entry["url"]
-        doc_id = _doc_id_from_url(url)
-        local_name = _build_download_filename(doc_id, url)
-        output_path = RAW_DIR / local_name
-
-        row = {
-            "doc_id": doc_id,
-            "titulo": entry["titulo"],
-            "fonte": entry["fonte"],
-            "data": entry["data"],
-            "tipo": entry["tipo"],
-            "source_url": url,
-            "local_path": str(output_path.as_posix()),
-            "status": "pending",
-            "erro": None,
-            "downloaded_at": datetime.now(timezone.utc).isoformat(),
-        }
-
+    if not discovered:
+        _scraping_terminal("Nenhum documento para baixar; gravando manifesto vazio.")
         try:
-            if idx > 0:
-                delay = random.uniform(delay_min_seconds, delay_max_seconds)
-                logger.info(
-                    "Aguardando %.2fs antes do próximo download (controle anti-bloqueio).",
-                    delay,
-                )
-                time.sleep(delay)
-
-            logger.info("Baixando documento: %s", url)
-            resp = requests.get(url, headers=headers, timeout=timeout_seconds)
-            resp.raise_for_status()
-            output_path.write_bytes(resp.content)
-            row["status"] = "downloaded"
-            logger.info("Download concluído: %s -> %s", url, output_path)
+            _write_jsonl(SCRAPING_MANIFEST_PATH, manifest_rows)
         except Exception as exc:
-            row["status"] = "error"
-            row["erro"] = str(exc)
-            logger.error("Erro ao baixar %s: %s", url, exc)
+            _scraping_terminal(f"ERRO ao gravar manifesto: {type(exc).__name__}: {exc}")
+            logger.exception("Falha ao gravar manifesto de scraping: %s", exc)
+            return
+        _scraping_terminal(f"Processo encerrado. Manifesto: {SCRAPING_MANIFEST_PATH}")
+        logger.info("Scraping finalizado sem downloads. manifesto=%s", SCRAPING_MANIFEST_PATH)
+        return
 
-        manifest_rows.append(row)
+    _scraping_terminal("Progresso 3/4 em andamento — download dos arquivos")
 
-    _write_jsonl(SCRAPING_MANIFEST_PATH, manifest_rows)
+    download_bar_format = "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]"
+    with tqdm(
+        discovered,
+        desc="Baixando documentos",
+        unit="doc",
+        disable=not show_progress,
+        bar_format=download_bar_format,
+    ) as pbar:
+        for idx, entry in enumerate(pbar):
+            url = entry["url"]
+            doc_id = _doc_id_from_url(url)
+            local_name = _build_download_filename(doc_id, url)
+            output_path = RAW_DIR / local_name
+
+            row = {
+                "doc_id": doc_id,
+                "titulo": entry["titulo"],
+                "fonte": entry["fonte"],
+                "data": entry["data"],
+                "tipo": entry["tipo"],
+                "source_url": url,
+                "local_path": str(output_path.as_posix()),
+                "status": "pending",
+                "erro": None,
+                "downloaded_at": datetime.now(timezone.utc).isoformat(),
+            }
+
+            try:
+                if idx > 0:
+                    delay = random.uniform(delay_min_seconds, delay_max_seconds)
+                    logger.info(
+                        "Aguardando %.2fs antes do próximo download (controle anti-bloqueio).",
+                        delay,
+                    )
+                    pbar.set_postfix_str(f"pausa {delay:.1f}s")
+                    time.sleep(delay)
+                    pbar.set_postfix_str("")
+
+                pbar.set_postfix_str(f"doc {idx + 1}/{len(discovered)}")
+                logger.info("Baixando documento: %s", url)
+                resp = requests.get(url, headers=headers, timeout=timeout_seconds)
+                resp.raise_for_status()
+                output_path.write_bytes(resp.content)
+                row["status"] = "downloaded"
+                logger.info("Download concluído: %s -> %s", url, output_path)
+            except Exception as exc:
+                row["status"] = "error"
+                row["erro"] = str(exc)
+                err_line = (
+                    f"ERRO no download ({idx + 1}/{len(discovered)}): "
+                    f"{type(exc).__name__}: {exc} | URL: {url}"
+                )
+                pbar.write(f"[scraping] {err_line}")
+                logger.error("Erro ao baixar %s: %s", url, exc)
+            finally:
+                pbar.set_postfix_str("")
+
+            manifest_rows.append(row)
+
+    _scraping_terminal("Progresso 4/4 em andamento — gravando manifesto JSONL")
+    try:
+        _write_jsonl(SCRAPING_MANIFEST_PATH, manifest_rows)
+    except Exception as exc:
+        _scraping_terminal(f"ERRO ao gravar manifesto: {type(exc).__name__}: {exc}")
+        logger.exception("Falha ao gravar manifesto de scraping: %s", exc)
+        return
+
     ok_count = sum(1 for r in manifest_rows if r["status"] == "downloaded")
     err_count = sum(1 for r in manifest_rows if r["status"] == "error")
+    _scraping_terminal(
+        f"Scraping concluído. Baixados: {ok_count}, com erro: {err_count}. "
+        f"Manifesto: {SCRAPING_MANIFEST_PATH}"
+    )
     logger.info(
         "Scraping finalizado. downloaded=%s error=%s manifesto=%s",
         ok_count,
