@@ -85,6 +85,8 @@ st.markdown(
     """
 **Projeto Final PLN - Trilha A (Recuperação Híbrida)**
 Faça perguntas sobre ICMS, FUNDEINFRA e regimes especiais com base nos pareceres do SEI-GO.
+
+⚠️ *Aviso: As respostas deste chatbot têm caráter apenas explicativo com base no corpus. Procure orientação profissional para aconselhamento jurídico.*
 """
 )
 

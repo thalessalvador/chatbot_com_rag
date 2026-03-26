@@ -861,7 +861,7 @@ Sua tarefa é responder à pergunta do utilizador APENAS com base no contexto fo
 
 REGRAS OBRIGATÓRIAS:
 1. GROUNDING: Se a resposta não estiver no contexto, responda EXATAMENTE: "{resposta_sem_contexto}"
-2. NÃO INVENTE: Não use conhecimentos externos à base fornecida. O foco não é aconselhamento jurídico genérico.
+2. NÃO INVENTE: Não use conhecimentos externos à base fornecida. O foco não é aconselhamento jurídico genérico, explique os pareceres e oriente a busca por aconselhamento profissional quando apropriado.
 3. IDIOMA: Responda sempre em Português do Brasil (pt-BR).
 4. FORMATAÇÃO: Não use LaTeX, MathJax, Markdown matemático nem expressões como \text{{...}}.
 5. CONCISÃO: Seja objetivo.
@@ -885,7 +885,7 @@ PERGUNTA: {pergunta}
 
 LEMBRETE OBRIGATÓRIO ANTES DE RESPONDER:
 - Você deve citar o alias [[TRECHO_n]] ao final de cada raciocínio relevante.
-- Se a resposta não estiver no contexto, responda EXATAMENTE: "{resposta_sem_contexto}". Não use conhecimentos externos à base fornecida. O foco não é aconselhamento jurídico genérico.
+- Se a resposta não estiver no contexto, responda EXATAMENTE: "{resposta_sem_contexto}". Não use conhecimentos externos à base fornecida. O foco não é aconselhamento jurídico, oriente a busca profissional.
 - Responda sempre em Português do Brasil (pt-BR) e leve em conta que a pergunta se aplica ao estado de Goiás.
 
 RESPOSTA:""",
