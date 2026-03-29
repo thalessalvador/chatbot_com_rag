@@ -1547,7 +1547,46 @@ def _extract_expected_filename(path_or_url):
     return urllib.parse.unquote(filename)
 
 
-def run_evaluate(golden_file=None, k=5):
+def _merge_recall_json(path: Path, summary: dict) -> None:
+    """Agrega um resultado de Recall@k num JSON partilhado (por embedding e por k).
+
+    Estrutura gravada:
+    ``{ "updated_at": "...", "runs": [ { "embedding_model": "...", "golden_file": "...", "by_k": {
+    "3": {"dense": {...}, ...}, "5": {...} } }, ... ] }``
+    """
+    k = str(summary["k"])
+    emb = summary["embedding_model"]
+    if path.exists():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            data = {"runs": []}
+    else:
+        data = {"runs": []}
+    if not isinstance(data.get("runs"), list):
+        data = {"runs": []}
+
+    run = next((r for r in data["runs"] if r.get("embedding_model") == emb), None)
+    if run is None:
+        run = {"embedding_model": emb, "by_k": {}}
+        data["runs"].append(run)
+
+    run["by_k"][k] = {
+        modo: {
+            "recall_pct": summary["modes"][modo]["recall_pct"],
+            "acertos": summary["modes"][modo]["acertos"],
+            "total": summary["modes"][modo]["total"],
+        }
+        for modo in summary["modes"]
+    }
+    run["golden_file"] = summary["golden_file"]
+    data["updated_at"] = datetime.now(timezone.utc).isoformat()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    logger.info("Métricas Recall@%s gravadas em %s", k, path)
+
+
+def run_evaluate(golden_file=None, k=5, append_recall_json=None):
     """Executa avaliação real de Recall@k para dense, sparse e hybrid.
 
     Parameters
@@ -1558,10 +1597,14 @@ def run_evaluate(golden_file=None, k=5):
     k : int, opcional
         Quantidade de documentos considerada no cálculo do Recall@k.
 
+    append_recall_json : str | None, opcional
+        Se preenchido, caminho de um JSON onde este resultado é fundido (por
+        `embeddings.model` e por `k`), para gráficos Recall@3/5/10.
+
     Returns
     -------
-    None
-        Imprime e registra os resultados de Recall@k por modo de busca.
+    dict | None
+        Resumo ``{"k", "embedding_model", "golden_file", "modes"}`` ou ``None`` em erro.
     """
     golden_path = Path(golden_file) if golden_file else DEFAULT_GOLDEN_SET_PATH
 
@@ -1572,7 +1615,7 @@ def run_evaluate(golden_file=None, k=5):
     if not golden_path.exists():
         logger.error("Golden Set não encontrado: %s", golden_path)
         print(f"ERRO: ficheiro de Golden Set não encontrado: {golden_path}")
-        return
+        return None
 
     if not Path(CHROMA_DB_DIR).exists() or not BM25_INDEX_PATH.exists():
         logger.error(
@@ -1581,7 +1624,7 @@ def run_evaluate(golden_file=None, k=5):
             BM25_INDEX_PATH,
         )
         print("ERRO: os índices não foram encontrados. Rode `--step index` antes da avaliação.")
-        return
+        return None
 
     try:
         from src.rag_core import HybridRAG
@@ -1633,13 +1676,29 @@ def run_evaluate(golden_file=None, k=5):
     print("-" * 40)
     logger.info("Resumo final da avaliação Recall@%s:", k)
 
+    summary_modes = {}
     for modo in modos:
         acertos = resultados[modo]["acertos"]
         total = resultados[modo]["total_validos"]
         recall = (acertos / total) * 100 if total > 0 else 0.0
+        summary_modes[modo] = {
+            "acertos": int(acertos),
+            "total": int(total),
+            "recall_pct": round(float(recall), 2),
+        }
         linha = f"Modo {modo.upper():<7} -> Recall@{k}: {recall:.1f}% ({acertos}/{total} acertos)"
         print(linha)
         logger.info(linha)
+
+    summary = {
+        "k": int(k),
+        "embedding_model": str(get_config_value("embeddings.model")),
+        "golden_file": str(golden_path.resolve()),
+        "modes": summary_modes,
+    }
+    if append_recall_json:
+        _merge_recall_json(Path(append_recall_json), summary)
+    return summary
 
 
 if __name__ == "__main__":
@@ -1660,6 +1719,14 @@ if __name__ == "__main__":
         default=int(get_config_value("evaluation.recall_k")),
         help="Valor de k para a métrica Recall@k na etapa de avaliação.",
     )
+    parser.add_argument(
+        "--append-recall-json",
+        default=None,
+        help=(
+            "Caminho de um JSON onde o resultado é agregado (por embeddings.model e por k). "
+            "Útil para gráficos Recall@3, @5 e @10."
+        ),
+    )
     args = parser.parse_args()
 
     if args.step == "scraping":
@@ -1671,4 +1738,8 @@ if __name__ == "__main__":
     elif args.step == "index":
         run_index()
     elif args.step == "evaluate":
-        run_evaluate(golden_file=args.golden_file, k=args.k)
+        run_evaluate(
+            golden_file=args.golden_file,
+            k=args.k,
+            append_recall_json=args.append_recall_json,
+        )

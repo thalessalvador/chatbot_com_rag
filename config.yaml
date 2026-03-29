@@ -14,7 +14,10 @@ llm:
 embeddings:
   # Modelo de embeddings usado na indexacao Dense e nas consultas semanticas.
   # Alterar este valor exige reexecutar `--step index` para regenerar o ChromaDB.
+  # Para MiniLM use sempre o id completo (igual ao `run_recall_at_k_values.py` / recall_por_k.json):
+  #   sentence-transformers/all-MiniLM-L6-v2
   model: stjiris/bert-large-portuguese-cased-legal-tsdae
+  # model: sentence-transformers/all-MiniLM-L6-v2
   device: cuda
   batch_size: 64
 
@@ -48,7 +51,12 @@ scraping:
 transform:
   clean_output_on_start: true
   normalize_legal_headings: true
-  libreoffice_cmd: soffice
+  # Comando ou caminho absoluto do LibreOffice (necessário para .doc/.xls/.ppt legados).
+  # Linux/macOS: em geral "soffice" (se estiver no PATH).
+  # Windows: use o caminho completo se não estiver no PATH, por exemplo:
+  # libreoffice_cmd: "C:/Program Files/LibreOffice/program/soffice.exe"
+  # Windows: pode adicionar à variavel de ambiente PATH (Path) o caminho absoluto do LibreOffice.
+  # libreoffice_cmd: soffice
 
 legal_chunking:
   max_tokens: 700
