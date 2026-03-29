@@ -1543,7 +1543,15 @@ def _extract_expected_filename(path_or_url):
     """
     if pd.isna(path_or_url) or path_or_url in {"Nenhum", "Erro", "", None}:
         return ""
-    filename = str(path_or_url).split("/")[-1]
+    raw = str(path_or_url).strip()
+    # URLs ou valores tipo ?file=P_123_SEI.docx
+    if "file=" in raw:
+        idx = raw.find("file=")
+        rest = raw[idx + len("file=") :]
+        end = rest.find("&")
+        name = rest if end < 0 else rest[:end]
+        return urllib.parse.unquote(name)
+    filename = raw.split("/")[-1]
     return urllib.parse.unquote(filename)
 
 

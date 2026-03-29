@@ -12,7 +12,7 @@ Foi utilizado um Golden Set em Excel com perguntas de negocio e documento espera
 python src/pipeline.py --step evaluate --golden-file Golden_Set_Preenchido_pelo_RAG_Reranked.xlsx --k 5
 ```
 
-Na execucao validada nesta fase, a avaliacao considerou **26** perguntas com gabarito utilizavel (golden set actual).
+Na execucao consolidada nesta fase, a avaliacao considerou **29** perguntas com gabarito utilizavel (linhas com `documento_esperado` preenchido; entradas `Nenhum` ou vazias ficam de fora do denominador do Recall). O ficheiro inclui tambem itens fora do corpus para rubrica de recusa, que nao entram nesta metrica.
 
 ## 3. Estrategias Avaliadas
 
@@ -24,41 +24,41 @@ Foram comparadas tres estrategias de recuperacao:
 
 ## 4. Baseline Confirmada
 
-Baseline **MiniLM** (`sentence-transformers/all-MiniLM-L6-v2`): **Recall@k** por modo de recuperacao, com os mesmos 26 casos do golden set utilizados na consolidacao de `docs/dados/recall_por_k.json`.
+Baseline **MiniLM** (`sentence-transformers/all-MiniLM-L6-v2`): **Recall@k** por modo de recuperacao, com os **29** casos do golden set utilizados na consolidacao de `docs/dados/recall_por_k.json` (actualizado em 2026-03-29).
 
 | k | Modo | Recall (%) | acertos/total |
 |---|------|------------|---------------|
-| 3 | Denso | 23,08 | 6/26 |
-| 3 | Esparso | 50,00 | 13/26 |
-| 3 | Hibrido | 53,85 | 14/26 |
-| 5 | Denso | 30,77 | 8/26 |
-| 5 | Esparso | 53,85 | 14/26 |
-| 5 | Hibrido | 57,69 | 15/26 |
-| 10 | Denso | 34,62 | 9/26 |
-| 10 | Esparso | 53,85 | 14/26 |
-| 10 | Hibrido | 69,23 | 18/26 |
+| 3 | Denso | 31,03 | 9/29 |
+| 3 | Esparso | 65,52 | 19/29 |
+| 3 | Hibrido | 62,07 | 18/29 |
+| 5 | Denso | 41,38 | 12/29 |
+| 5 | Esparso | 68,97 | 20/29 |
+| 5 | Hibrido | 72,41 | 21/29 |
+| 10 | Denso | 41,38 | 12/29 |
+| 10 | Esparso | 68,97 | 20/29 |
+| 10 | Hibrido | 82,76 | 24/29 |
 
-Resumo da linha **k = 5** (comparavel a corridas anteriores do projeto com 25 itens, hoje com 26):
+Resumo da linha **k = 5** (golden set alargado face a corridas anteriores com 26 itens):
 
-- Modo Denso: Recall@5 de **30,77%** (8/26 acertos)
-- Modo Esparso: Recall@5 de **53,85%** (14/26 acertos)
-- Modo Hibrido: Recall@5 de **57,69%** (15/26 acertos)
+- Modo Denso: Recall@5 de **41,38%** (12/29 acertos)
+- Modo Esparso: Recall@5 de **68,97%** (20/29 acertos)
+- Modo Hibrido: Recall@5 de **72,41%** (21/29 acertos)
 
 ## 5. Experimento com Embedding Juridico
 
-Tabela consolidada de **Recall@k** (denso, esparso, hibrido) para o baseline **MiniLM** (`sentence-transformers/all-MiniLM-L6-v2`) e o embedding **juridico** (`stjiris/bert-large-portuguese-cased-legal-tsdae`). Valores obtidos via `run_evaluate` e registados em `docs/dados/recall_por_k.json` (26 perguntas do golden set com gabarito utilizavel nesta execucao).
+Tabela consolidada de **Recall@k** (denso, esparso, hibrido) para o baseline **MiniLM** (`sentence-transformers/all-MiniLM-L6-v2`) e o embedding **juridico** (`stjiris/bert-large-portuguese-cased-legal-tsdae`). Valores obtidos via `run_evaluate` e registados em `docs/dados/recall_por_k.json` (**29** perguntas com gabarito utilizavel nesta execucao).
 
 | k | Modo | MiniLM — Recall (%) | MiniLM — acertos/total | BERT legal — Recall (%) | BERT legal — acertos/total |
 |---|------|---------------------|------------------------|-------------------------|----------------------------|
-| 3 | Denso | 23,08 | 6/26 | 19,23 | 5/26 |
-| 3 | Esparso | 50,00 | 13/26 | 50,00 | 13/26 |
-| 3 | Hibrido | 53,85 | 14/26 | 61,54 | 16/26 |
-| 5 | Denso | 30,77 | 8/26 | 19,23 | 5/26 |
-| 5 | Esparso | 53,85 | 14/26 | 53,85 | 14/26 |
-| 5 | Hibrido | 57,69 | 15/26 | 65,38 | 17/26 |
-| 10 | Denso | 34,62 | 9/26 | 23,08 | 6/26 |
-| 10 | Esparso | 53,85 | 14/26 | 53,85 | 14/26 |
-| 10 | Hibrido | 69,23 | 18/26 | 65,38 | 17/26 |
+| 3 | Denso | 31,03 | 9/29 | 17,24 | 5/29 |
+| 3 | Esparso | 65,52 | 19/29 | 65,52 | 19/29 |
+| 3 | Hibrido | 62,07 | 18/29 | 68,97 | 20/29 |
+| 5 | Denso | 41,38 | 12/29 | 17,24 | 5/29 |
+| 5 | Esparso | 68,97 | 20/29 | 68,97 | 20/29 |
+| 5 | Hibrido | 72,41 | 21/29 | 72,41 | 21/29 |
+| 10 | Denso | 41,38 | 12/29 | 31,03 | 9/29 |
+| 10 | Esparso | 68,97 | 20/29 | 68,97 | 20/29 |
+| 10 | Hibrido | 82,76 | 24/29 | 79,31 | 23/29 |
 
 Foi realizado um experimento controlado alterando apenas o modelo de embeddings para:
 
@@ -66,13 +66,13 @@ Foi realizado um experimento controlado alterando apenas o modelo de embeddings 
 
 Resultado obtido (linha **k = 5** da tabela acima, BERT legal):
 
-- Modo Denso: Recall@5 de 19,23% (5/26 acertos)
-- Modo Esparso: Recall@5 de 53,85% (14/26 acertos)
-- Modo Hibrido: Recall@5 de 65,38% (17/26 acertos)
+- Modo Denso: Recall@5 de **17,24%** (5/29 acertos)
+- Modo Esparso: Recall@5 de **68,97%** (20/29 acertos)
+- Modo Hibrido: Recall@5 de **72,41%** (21/29 acertos)
 
 ## 6. Conclusao Tecnica
 
-Para avaliação do modelo foi construído um script capaz de rodar ambos os modelos em k-posições necessárias. Para tal, rode (para k IN (3, 5 e 10)):
+Para avaliacao do modelo foi construído um script capaz de rodar ambos os modelos em k-posições necessárias. Para tal, rode (para k IN (3, 5 e 10)):
 
 ```powershell
 python scripts/run_recall_at_k_values.py --k-values 3,5,10
@@ -84,7 +84,9 @@ python scripts/run_recall_at_k_values.py --k-values 3,5,10
 
 ![Recall@10 — MiniLM vs BERT legal](docs/imagens/recall_k10.png)
 
-Em sintese, a troca do embedding generico pelo modelo juridico especializado **não** trouxe vantagem no modo **denso isolado**, onde o recall ate regrediu. O modo **esparso** houve uma ligeira melhora, indicando que o modelo especialista ranqueia melhor as respostas, mas indica apenas a mudança de apenas 1 pergunta do Golden Set . O modo **hibrido**, por sua vez, elevou o Recall@5 de **57,69%** (MiniLM) para **65,38%** (BERT legal), consolidando a Trilha A como mais do que uma combinacao formal: neste conjunto de testes, foi o unico cenario em que o embedding juridico se traduziu em **ganho mensuravel** na recuperacao. Assim, para o uso previsto do chatbot — com fusao densa-esparsa ativa — o modelo `stjiris/bert-large-portuguese-cased-legal-tsdae` mostrou-se pertinente.
+Com o golden set **atual (29 perguntas validas)**, o embedding juridico **mantem desvantagem clara no modo denso** face ao MiniLM (por exemplo, Recall@5 de **17,24%** frente a **41,38%**). No modo **esparso**, os dois modelos **empatam** em todos os k reportados (mesmos acertos/total, por o BM25 nao depender do embedding). No modo **hibrido**, para **Recall@5** os dois embeddings produzem **o mesmo resultado: 72,41%** (21/29); para **Recall@10**, o **MiniLM** fica ligeiramente **acima** (**82,76%** ou 24/29) do BERT legal (**79,31%** ou 23/29).
+
+Em sintese, apos o alargamento do conjunto de testes, o ganho exclusivo do BERT no hibrido observado na versao anterior do relatorio **deixa de aparecer em k = 5** (empate). A **Trilha A** continua relevante porque o **hibrido** supera denso e esparso isolados em varios cenarios; a escolha do embedding deve equilibrar **custo/tempo** (BERT maior) e o facto de, neste conjunto, o **MiniLM** ainda ser **superior ou igual** ao BERT no denso e no hibrido em **k = 10**.
 
 ## 7. Implementacao na Interface
 
