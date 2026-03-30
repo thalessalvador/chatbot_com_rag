@@ -59,4 +59,7 @@ Artefatos locais de trabalho (fora do versionamento)
 notebook_base/
 feedback perguntas/
 feedback_perguntas/
-docs/
+# docs/ local (notas, dados); manter imagens do relatorio versionadas
+docs/*
+!docs/imagens/
+!docs/imagens/**

@@ -91,3 +91,81 @@ Em sintese, apos o alargamento do conjunto de testes, o ganho exclusivo do BERT 
 ## 7. Implementacao na Interface
 
 A interface em Streamlit foi desenhada para espelhar estas escolhas tecnicas no contacto com o utilizador. Na barra lateral, e possivel alternar entre **Hibrido**, **Denso** e **Esparso**, de modo que a mesma pergunta possa ser respondida com estrategias distintas sem sair da aplicacao. Isto aproxima a demonstracao oral do que o relatório quantifica: o utilizador ve a resposta com citacoes, pode abrir o painel de trechos recuperados e, ao mudar o modo, observa diretamente como mudam os chunks que sustentam o RAG.
+
+## 8. Analise por rubrica qualitativa
+
+Esta secção incorpora as anotações do ficheiro **`rubrica_qualitativa.xlsx`** (na raiz do projeto; folha `rubrica_qualitativa`), com **15** linhas de avaliação: **5** perguntas do golden set (linhas 1, 2, 3, 23 e 32) cruzadas com os **três** modos de recuperação (**Híbrido**, **Denso**, **Esparso** / BM25).
+
+### 8.1 Critérios utilizados
+
+Para cada execução foram registadas notas (escala numérica em geral de 1 a 5, salvo `N/D` quando o critério não se aplicava) e comentários livres:
+
+| Critério | Significado na rubrica (uso neste trabalho) |
+|----------|-----------------------------------------------|
+| **Groundedness** | A resposta permanece ancorada nos trechos recuperados? |
+| **Correção** | Alinhamento com o conteúdo normativo/factual esperado para a pergunta. |
+| **Citações** | Uso adequado das referências `[[TRECHO_n]]` / coerência com as fontes. |
+| **Alucinação** | Nota alta = pouca ou nenhuma invenção em relação ao corpus (conforme a convenção da folha). |
+| **Recusa** | Quando aplicável (ex.: tema fora do corpus), capacidade de recusar em vez de inventar. |
+
+As **observações** textuais da folha resumem-se abaixo, preservando o critério do avaliador.
+
+### 8.2 Síntese por pergunta e modo
+
+**Pergunta 1 (linha golden 1)** — *O que é fundeinfra?*
+
+| Modo | G | C | Cit | Alu | Rec | Observações (resumo) |
+|------|---|---|-----|-----|-----|----------------------|
+| Híbrido | 5 | 4 | 5 | 5 | N/D | Cita o Fundeinfra mas erra número da lei, não cita ICMS; resposta longa e desfocada do cerne da pergunta. |
+| Denso | 1 | 1 | 1 | 5 | N/D | Não encontrou resposta útil (falha de recuperação / resposta vazia). |
+| **Esparso (BM25)** | **5** | **5** | **5** | **5** | N/D | **Melhor resposta global** na rubrica. |
+
+**Pergunta 2 (linha golden 2)** — *Empresa de SP, duas vendas de máquinas (não contribuinte R$ 100 mil e contribuinte R$ 200 mil): quanto pagar de DIFAL para Goiás?*
+
+| Modo | G | C | Cit | Alu | Rec | Observações (resumo) |
+|------|---|---|-----|-----|-----|----------------------|
+| Híbrido | 5 | 2 | 3 | 5 | N/D | Raciocínio invertido; acertou o parecer; errou o cálculo. |
+| Denso | 5 | 3 | 3 | 5 | N/D | Acertou parecer e cálculo, mas não usou bem o parecer na formulação da resposta. |
+| Esparso (BM25) | 5 | 2 | 3 | 5 | N/D | Usou o parecer de forma coerente; errou cálculo e base de cálculo. |
+
+Neste caso a **correção** ficou ligeiramente melhor no **Denso**, mas todos falham em parte no cálculo ou na articulação; a rubrica destaca sobretudo **grounding** estável nos três.
+
+**Pergunta 3 (linha golden 3)** — *A construtora é obrigada a fazer a Escrituração Fiscal Digital?*
+
+| Modo | G | C | Cit | Alu | Rec | Observações (resumo) |
+|------|---|---|-----|-----|-----|----------------------|
+| Híbrido | 5 | 2 | 5 | 5 | N/D | Coerente com o documento recuperado, mas não coincide com a resposta esperada do golden. |
+| Denso | 1 | 1 | 1 | 1 | N/D | Não encontrou resposta. |
+| **Esparso (BM25)** | **5** | **2** | **5** | **5** | N/D | Mesma linha do híbrido quanto ao alinhamento com o gabarito, com resposta **mais sucinta e direta**. |
+
+**Pergunta 23 (linha golden 23)** — *Caminhonete é veículo utilitário?*
+
+| Modo | G | C | Cit | Alu | Rec | Observações (resumo) |
+|------|---|---|-----|-----|-----|----------------------|
+| **Híbrido** | **5** | **5** | **5** | **1** | N/D | **Melhor conjunto** na rubrica: chunks fortes no top-3, resposta coesa (IPVA, órgão competente). |
+| Denso | 2 | 1 | 5 | 1 | N/D | Parecer correto fora do top-5; trechos sem correlação temática (ex.: combustíveis). |
+| Esparso (BM25) | 5 | 4 | 5 | 5 | N/D | Top-4 alinhados ao parecer esperado; resposta um pouco aberta quanto ao “modelo”; falta explicitar competência estadual. |
+
+**Pergunta 32 (linha golden 32)** — *Quais requisitos da ANVISA para registro de cosmético importado (petição, taxas e documentação técnica)?* (intencionalmente **fora do corpus** tributário GO)
+
+| Modo | G | C | Cit | Alu | Rec | Observações (resumo) |
+|------|---|---|-----|-----|-----|----------------------|
+| Híbrido | 5 | 1 | 5 | 1 | 1 | Alucinação: afirma sem corpus ANVISA; texto ainda “colado” a chunks errados. |
+| **Denso** | **5** | **5** | **5** | **5** | **5** | **Recusa clara** pela ausência de informação no corpus (melhor comportamento de segurança). |
+| Esparso (BM25) | 1 | 1 | 1 | 1 | 1 | Alucinação grave (incl. troca de idioma na anotação). |
+
+*(Legenda: G = groundedness, C = correcao, Cit = citacoes, Alu = alucinacao, Rec = recusa.)*
+
+### 8.3 Justificativa da melhor escolha do modelo **BM25** (modo esparso)
+
+Com base **somente** nas anotações de `rubrica_qualitativa.xlsx` (raiz do projeto) e em alinhamento com o **Recall@k** já reportado (onde o **esparso** supera o **denso** em vários k):
+
+1. **Termos jurídicos e siglas** — Perguntas como *Fundeinfra* ou *Escrituração Fiscal Digital* beneficiam da **coincidência lexical** com os pareceres. O **BM25** promove documentos em que esses tokens aparecem com frequência e relevância estatística; na rubrica, o **denso falhou por completo** nas perguntas 1 e 3 (notas mínimas e “não encontrou resposta”), enquanto o **esparso** manteve **groundedness e citações altas** e foi classificado como **melhor resposta** no caso Fundeinfra.
+
+2. **Robustez quando o embedding denso desvia** — No caso **caminhonete / veículo utilitário**, o avaliador registra que o **denso** recuperou trechos **fora do tema** (ainda no “universo” tributário, mas irrelevantes). O **BM25** manteve **quatro** chunks do parecer esperado no topo, com **menos dispersão semântica** para esta formulação da pergunta.
+
+3. **Consistência com a métrica automática** — O **Recall@5** esparso (**68,97%**, 20/29) já indicava vantagem sobre o denso (**41,38%**, 12/29) no mesmo golden; a rubrica **confirma qualitativamente** que, em perguntas **ancoradas no léxico** dos pareceres de Goiás, o **esparso é frequentemente o modo mais seguro** quando o utilizador não reformula a pergunta em linguagem “próxima” do espaço semântico do modelo de embeddings.
+
+4. **Ressalva obrigatória: temas fora do corpus** — Na pergunta **ANVISA**, o **BM25** obteve **piores** notas em todos os critérios e **alucinação** explícita na rubrica; o **denso** foi o único a **recusar** corretamente. Logo, a “melhor escolha” do BM25 **não é universal**: para **consultas claramente ausentes** do acervo, o relatório recomenda **priorizar o modo denso** (ou políticas de recusa no LLM) e tratar o **esparso** como **complementar** no **híbrido**, não como substituto cego em cenários de *out-of-domain*.
+
+Em síntese, para o **domínio deste chatbot** (pareceres tributários GO com perguntas ricas em **nomes de institutos, normas e fatos concretos**), a rubrica qualitativa **reforça o BM25** como **baseline forte** frente ao denso isolado, **coerente** com o Recall quantitativo, com a **exceção documentada** de perguntas **sem suporte no corpus**, onde o **denso** foi superior na **recusa**.
