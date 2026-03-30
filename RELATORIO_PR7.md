@@ -22,9 +22,56 @@ Foram comparadas tres estrategias de recuperacao:
 - Esparso (BM25): recuperacao lexical por frequencia exata de termos.
 - Hibrido (RRF): combinacao entre denso e esparso por Reciprocal Rank Fusion.
 
-## 4. Baseline Confirmada
+## 4. Trilha A: arquitetura de recuperação híbrida
 
-Baseline **MiniLM** (`sentence-transformers/all-MiniLM-L6-v2`): **Recall@k** por modo de recuperacao, com os **29** casos do golden set utilizados na consolidacao de `docs/dados/recall_por_k.json` (actualizado em 2026-03-29).
+Esta secção cumpre o requisito de **documentar** a Trilha A: motores **denso** e **esparso**, **fusão RRF**, parâmetros de configuração e **interpretação quantitativa** (Recall@k) face ao denso isolado. A implementação de referência está em `src/rag_core.py` (`HybridRAG.retrieve`) e os hiperparâmetros em `config.yaml` → `retrieval`.
+
+### 4.1 Recuperação densa (embeddings)
+
+- O texto de cada chunk (versão enriquecida para indexação) foi previamente vectorizado com **`SentenceTransformer`** na etapa `--step index`, armazenado no **ChromaDB** (`data/index/chroma_db`).
+- Em cada pergunta, o mesmo modelo codifica a **query** num vector de consulta; o Chroma devolve os `chunk_id` mais próximos por similaridade de coseno (ordem = rank denso).
+- O **espaço semântico** depende exclusivamente de `embeddings.model` (neste relatório: comparação **MiniLM** vs **BERT legal** nos ficheiros `recall_por_k.json`). Trocar o modelo exige **reindexar** o denso.
+
+### 4.2 Recuperação esparsa (BM25)
+
+- Utiliza **BM25Okapi** (`rank_bm25`) sobre **todos** os chunks carregados a partir de `data/index/bm25_index.pkl` (gerado no `--step index` com o mesmo `chunks.json` que o denso).
+- A query é **tokenizada** (`nltk.word_tokenize` com fallback por `\w+`); a pontuação BM25 gera um ranking por **coincidência lexical** (termos raros e repetidos no documento pesam mais, no espírito clássico de Okapi BM25).
+- **Não** usa embeddings: por isso, nos experimentos deste relatório, as linhas **esparso** do JSON são **idênticas** para MiniLM e BERT legal (mesmos acertos/total por **k**).
+
+### 4.3 Fusão híbrida (RRF) e “deduplicação”
+
+No modo `hybrid`, o sistema **não** escolhe manualmente scores incomensuráveis entre denso e BM25. Aplica **Reciprocal Rank Fusion (RRF)** sobre **duas listas ordenadas de `chunk_id`**:
+
+1. Lista **A** (denso): ordenação por proximidade no Chroma.  
+2. Lista **B** (esparso): ordenação por score BM25 decrescente.
+
+Para cada lista, cada posição `rank` (base 0) contribui para o identificador `doc_id` com o termo **1 / (k_rrf + rank + 1)**. Se o mesmo `chunk_id` aparece nas **duas** listas, os dois termos **somam** num score RRF agregado — efeito natural de **unificar** o mesmo parecer sem duplicar linhas no ranking final.
+
+Hiperparâmetro **`retrieval.rrf_k`** (no projeto: **60**, configurável por ambiente como `RRF_K`): quanto **maior** `k_rrf`, mais **suave** é a pena por rank (contribuições dos primeiros lugares diferenciam-se menos dos seguintes). O código replica o padrão usual de fusão por ranks descrito na literatura de RAG híbrido.
+
+**Dimensão do conjunto candidato** (sem reranker): recolhe-se um pool de até `max(top_k * 2, …)` resultados por ramo antes da fusão; depois ordena-se por score RRF e corta-se em **`retrieval.top_k`** (predefinição **5** na configuração do repositório, alinhada à avaliação Recall@5). Com **`retrieval.reranking.enabled: false`** (estado actual), **não** há passo extra de cross-encoder após o RRF.
+
+### 4.4 Quando o híbrido ganha ou perde (números MiniLM, golden com 29 casos)
+
+Valores de `docs/dados/recall_por_k.json` (primeira entrada de `runs` — MiniLM):
+
+| k | Denso | Esparso | Híbrido | Nota |
+|---|-------|---------|---------|------|
+| 3 | 31,03% (9/29) | 65,52% (19/29) | 62,07% (18/29) | Híbrido **supera** o denso (+31 pontos percentuais); fica **ligeiramente abaixo** do só BM25 (−3,45 p.p.). |
+| 5 | 41,38% (12/29) | 68,97% (20/29) | 72,41% (21/29) | Híbrido **supera** denso e **supera** esparso. |
+| 10 | 41,38% (12/29) | 68,97% (20/29) | 82,76% (24/29) | Híbrido **supera** ambos; denso **estagna** face a k=5 neste conjunto. |
+
+**Interpretação:** o **denso MiniLM** é o elo mais fraco neste golden; o **BM25** já traz forte cobertura lexical. O RRF **corrige** parte da lacuna do denso em k=5 e k=10 ao promover identificadores que aparecem bem posicionados em **qualquer** uma das listas. Em **k=3**, poucos postos no top final penalizam ligeiramente a fusão relativamente ao **só esparso** (o recall do híbrido fica entre denso e esparso).
+
+Com o **BERT legal** no denso (segunda entrada de `runs`), o denso piora fortemente em k=3 e k=5; o híbrido continua a **aproveitar** o ramo esparso e aproxima-se do desempenho do híbrido MiniLM em Recall@5 (72,41% — empate), enquanto em Recall@3 o híbrido BERT (68,97%) **já ultrapassa** o esparso (65,52%) porque o contributo denso, embora fraco, reordena a fusão de forma mais favorável nesse **k**.
+
+### 4.5 Interface
+
+A mesma arquitectura está exposta no Streamlit (**secção 8** deste relatório): o utilizador pode alternar **Híbrido**, **Denso** e **Esparso** e comparar os trechos recuperados para a mesma pergunta, em linha com a Trilha A.
+
+## 5. Baseline Confirmada
+
+Baseline **MiniLM** (`sentence-transformers/all-MiniLM-L6-v2`): **Recall@k** por modo de recuperação. Valores extraídos de `docs/dados/recall_por_k.json` (primeira entrada de `runs`; `updated_at`: `2026-03-29T03:12:32.329432+00:00`), com **29** perguntas válidas no denominador.
 
 | k | Modo | Recall (%) | acertos/total |
 |---|------|------------|---------------|
@@ -38,15 +85,15 @@ Baseline **MiniLM** (`sentence-transformers/all-MiniLM-L6-v2`): **Recall@k** por
 | 10 | Esparso | 68,97 | 20/29 |
 | 10 | Hibrido | 82,76 | 24/29 |
 
-Resumo da linha **k = 5** (golden set alargado face a corridas anteriores com 26 itens):
+Resumo **Recall@5** (baseline MiniLM, conforme JSON):
 
-- Modo Denso: Recall@5 de **41,38%** (12/29 acertos)
-- Modo Esparso: Recall@5 de **68,97%** (20/29 acertos)
-- Modo Hibrido: Recall@5 de **72,41%** (21/29 acertos)
+- Modo Denso: **41,38%** (12/29)
+- Modo Esparso: **68,97%** (20/29)
+- Modo Hibrido: **72,41%** (21/29)
 
-## 5. Experimento com Embedding Juridico
+## 6. Experimento com Embedding Juridico
 
-Tabela consolidada de **Recall@k** (denso, esparso, hibrido) para o baseline **MiniLM** (`sentence-transformers/all-MiniLM-L6-v2`) e o embedding **juridico** (`stjiris/bert-large-portuguese-cased-legal-tsdae`). Valores obtidos via `run_evaluate` e registados em `docs/dados/recall_por_k.json` (**29** perguntas com gabarito utilizavel nesta execucao).
+Comparação **Recall@k**: colunas **MiniLM** e **BERT legal** correspondem, respetivamente, à primeira e segunda entradas de `runs` em `docs/dados/recall_por_k.json` (mesmo `updated_at` acima), com **29** casos válidos.
 
 | k | Modo | MiniLM — Recall (%) | MiniLM — acertos/total | BERT legal — Recall (%) | BERT legal — acertos/total |
 |---|------|---------------------|------------------------|-------------------------|----------------------------|
@@ -60,17 +107,15 @@ Tabela consolidada de **Recall@k** (denso, esparso, hibrido) para o baseline **M
 | 10 | Esparso | 68,97 | 20/29 | 68,97 | 20/29 |
 | 10 | Hibrido | 82,76 | 24/29 | 79,31 | 23/29 |
 
-Foi realizado um experimento controlado alterando apenas o modelo de embeddings para:
+Experimento: alteração controlada do modelo de embeddings para `stjiris/bert-large-portuguese-cased-legal-tsdae`.
 
-- `stjiris/bert-large-portuguese-cased-legal-tsdae`
+**Recall@5 (BERT legal), conforme JSON:**
 
-Resultado obtido (linha **k = 5** da tabela acima, BERT legal):
+- Denso: **17,24%** (5/29)
+- Esparso: **68,97%** (20/29)
+- Hibrido: **72,41%** (21/29)
 
-- Modo Denso: Recall@5 de **17,24%** (5/29 acertos)
-- Modo Esparso: Recall@5 de **68,97%** (20/29 acertos)
-- Modo Hibrido: Recall@5 de **72,41%** (21/29 acertos)
-
-## 6. Conclusao Tecnica
+## 7. Conclusao Tecnica
 
 Para avaliacao do modelo foi construído um script capaz de rodar ambos os modelos em k-posições necessárias. Para tal, rode (para k IN (3, 5 e 10)):
 
@@ -84,19 +129,19 @@ python scripts/run_recall_at_k_values.py --k-values 3,5,10
 
 ![Recall@10 — MiniLM vs BERT legal](docs/imagens/recall_k10.png)
 
-Com o golden set **atual (29 perguntas validas)**, o embedding juridico **mantem desvantagem clara no modo denso** face ao MiniLM (por exemplo, Recall@5 de **17,24%** frente a **41,38%**). No modo **esparso**, os dois modelos **empatam** em todos os k reportados (mesmos acertos/total, por o BM25 nao depender do embedding). No modo **hibrido**, para **Recall@5** os dois embeddings produzem **o mesmo resultado: 72,41%** (21/29); para **Recall@10**, o **MiniLM** fica ligeiramente **acima** (**82,76%** ou 24/29) do BERT legal (**79,31%** ou 23/29).
+Com o golden set atual (**29** casos válidos neste JSON), o embedding jurídico permanece **abaixo** do MiniLM no modo **denso** em todos os **k**: Recall@3 **17,24%** (5/29) vs **31,03%** (9/29); Recall@5 **17,24%** (5/29) vs **41,38%** (12/29); Recall@10 **31,03%** (9/29) vs **41,38%** (12/29). No modo **esparso**, os dois modelos **empatam** em cada **k** (idem acertos/total: 19/29, 20/29 e 20/29, por o BM25 não depender do modelo de embeddings). No modo **híbrido**, Recall@5 é **72,41%** (21/29) para ambos; em Recall@10 o **MiniLM** regista **82,76%** (24/29) e o **BERT legal** **79,31%** (23/29).
 
-Em sintese, apos o alargamento do conjunto de testes, o ganho exclusivo do BERT no hibrido observado na versao anterior do relatorio **deixa de aparecer em k = 5** (empate). A **Trilha A** continua relevante porque o **hibrido** supera denso e esparso isolados em varios cenarios; a escolha do embedding deve equilibrar **custo/tempo** (BERT maior) e o facto de, neste conjunto, o **MiniLM** ainda ser **superior ou igual** ao BERT no denso e no hibrido em **k = 10**.
+Em síntese, com estes números consolidados em `recall_por_k.json`, **não** há ganho do BERT sobre o MiniLM em Recall@5 no híbrido (empate). A **Trilha A** mantém-se justificada porque o **híbrido** supera, em geral, denso e esparso isolados; a escolha do embedding deve equilibrar **custo/tempo** (BERT maior) e a vantagem do **MiniLM** no **denso** e no **híbrido** a **k = 10** neste conjunto.
 
-## 7. Implementacao na Interface
+## 8. Implementacao na Interface
 
 A interface em Streamlit foi desenhada para espelhar estas escolhas tecnicas no contacto com o utilizador. Na barra lateral, e possivel alternar entre **Hibrido**, **Denso** e **Esparso**, de modo que a mesma pergunta possa ser respondida com estrategias distintas sem sair da aplicacao. Isto aproxima a demonstracao oral do que o relatório quantifica: o utilizador ve a resposta com citacoes, pode abrir o painel de trechos recuperados e, ao mudar o modo, observa diretamente como mudam os chunks que sustentam o RAG.
 
-## 8. Analise por rubrica qualitativa
+## 9. Analise por rubrica qualitativa
 
-Esta secção incorpora as anotações do ficheiro **`rubrica_qualitativa.xlsx`** (na raiz do projeto; folha `rubrica_qualitativa`), com **15** linhas de avaliação: **5** perguntas do golden set (linhas 1, 2, 3, 23 e 32) cruzadas com os **três** modos de recuperação (**Híbrido**, **Denso**, **Esparso** / BM25).
+Esta seção incorpora as anotações do ficheiro **`rubrica_qualitativa.xlsx`** (na raiz do projeto; folha `rubrica_qualitativa`), com **15** linhas de avaliação: **5** perguntas do golden set (linhas 1, 2, 3, 23 e 32) cruzadas com os **três** modos de recuperação (**Híbrido**, **Denso**, **Esparso** / BM25). Foi utilizado o modelo `stjiris/bert-large-portuguese-cased-legal-tsdae` para o teste de rubricas.
 
-### 8.1 Critérios utilizados
+### 9.1 Critérios utilizados
 
 Para cada execução foram registadas notas (escala numérica em geral de 1 a 5, salvo `N/D` quando o critério não se aplicava) e comentários livres:
 
@@ -110,7 +155,7 @@ Para cada execução foram registadas notas (escala numérica em geral de 1 a 5,
 
 As **observações** textuais da folha resumem-se abaixo, preservando o critério do avaliador.
 
-### 8.2 Síntese por pergunta e modo
+### 9.2 Síntese por pergunta e modo
 
 **Pergunta 1 (linha golden 1)** — *O que é fundeinfra?*
 
@@ -156,7 +201,7 @@ Neste caso a **correção** ficou ligeiramente melhor no **Denso**, mas todos fa
 
 *(Legenda: G = groundedness, C = correcao, Cit = citacoes, Alu = alucinacao, Rec = recusa.)*
 
-### 8.3 Justificativa da melhor escolha do modelo **BM25** (modo esparso)
+### 9.3 Justificativa da melhor escolha do modelo **BM25** (modo esparso)
 
 Com base **somente** nas anotações de `rubrica_qualitativa.xlsx` (raiz do projeto) e em alinhamento com o **Recall@k** já reportado (onde o **esparso** supera o **denso** em vários k):
 
@@ -169,3 +214,43 @@ Com base **somente** nas anotações de `rubrica_qualitativa.xlsx` (raiz do proj
 4. **Ressalva obrigatória: temas fora do corpus** — Na pergunta **ANVISA**, o **BM25** obteve **piores** notas em todos os critérios e **alucinação** explícita na rubrica; o **denso** foi o único a **recusar** corretamente. Logo, a “melhor escolha” do BM25 **não é universal**: para **consultas claramente ausentes** do acervo, o relatório recomenda **priorizar o modo denso** (ou políticas de recusa no LLM) e tratar o **esparso** como **complementar** no **híbrido**, não como substituto cego em cenários de *out-of-domain*.
 
 Em síntese, para o **domínio deste chatbot** (pareceres tributários GO com perguntas ricas em **nomes de institutos, normas e fatos concretos**), a rubrica qualitativa **reforça o BM25** como **baseline forte** frente ao denso isolado, **coerente** com o Recall quantitativo, com a **exceção documentada** de perguntas **sem suporte no corpus**, onde o **denso** foi superior na **recusa**.
+
+## 10. Processo de chunking (ingestão jurídica)
+
+Esta seção documenta **o que é necessário** para reproduzir e justificar a segmentação dos pareceres antes da indexação. A implementação está desenvolvida em `src/pipeline.py` (função `run_ingest` e auxiliares), com parâmetros em `config.yaml` → `legal_chunking` e `transform`.
+
+### 10.1 Entrada e pré-requisitos
+
+1. **Markdown por documento** em `data/transformation/`, listado na transformação (etapa `--step transform`). Cada ficheiro pode incluir **front matter YAML** inicial (`---` … `---`) com metadados (`doc_id`, `titulo`, `fonte`, `data`, `tipo`, `assunto`).
+2. **Normalização de estrutura** (opcional, recomendada): com `transform.normalize_legal_headings: true`, os títulos típicos de parecer (EMENTA, RELATÓRIO, FUNDAMENTAÇÃO, CONCLUSÃO, DISPOSITIVO, numeração romana, etc.) são padronizados como headings `##` antes da ingestão, o que **melhora a detecção de seções** descrita abaixo.
+
+### 10.2 Primeiro nível: seções jurídicas
+
+O corpo do Markdown (após remoção do front matter) é percorrido **linha a linha** (`_detect_legal_sections`):
+
+- **Padrões de cabeçalho** alinhados a peças do Estado de Goiás: EMENTA, RELATÓRIO, FUNDAMENTAÇÃO, CONCLUSÃO, DISPOSITIVO (incluindo variantes com/sem acentos e com numeração tipo `I - RELATÓRIO`).
+- **Qualquer linha que comece por `#`** inicia nova seção; o texto acumulado até ao próximo limiar é guardado como um bloco.
+- Cada bloco recebe um rótulo (`ementa`, `relatorio`, `fundamentacao`, `conclusao`, `dispositivo` ou `secao_geral`) para fins de **filtro semântico e de metadados** no RAG.
+
+**Justificativa:** pareceres tributários seguem uma **ordem argumentativa estável**; segmentar por estas seções evita misturar, num único chunk longo, relatório fático, fundamentação jurídica e conclusão, o que prejudicaria tanto a recuperação por embedding como a explicação da citação ao utilizador.
+
+### 10.3 Segundo nível: sub-chunks por tamanho (tokens)
+
+Seções longas são ainda divididas (`_split_section_into_subchunks`):
+
+- **Contagem de tokens:** usa `nltk.word_tokenize` quando disponível; caso contrário, **fallback** por tokens alfanuméricos (`\w+`).
+- **`legal_chunking.max_tokens`** (no projeto: **700**): tamanho máximo da janela.
+- **`legal_chunking.overlap_tokens`** (no projeto: **140**): sobreposição entre janelas consecutivas; o passo efectivo é `max_tokens - overlap_tokens` (mínimo 1), gerando **janela deslizante** sobre a sequência de tokens.
+
+**Nota técnica:** a divisão é **por token**, não por parágrafos nem por `RecursiveCharacterTextSplitter`; prioriza **limite de contexto** e reprodutibilidade em texto jurídico denso. Listas e tabelas herdadas do Markdown ficam no fluxo linear da seção — podem ser cortadas a meio da janela; isso é uma **limitação aceita** face à necessidade de chunks de tamanho controlado para o vetor e para o LLM.
+
+### 10.4 Identificação, metadados e texto enriquecido
+
+- **`chunk_id`:** `{doc_id}#chunk_` + índice sequencial de quatro dígitos por documento (`0000`, `0001`, …).
+- **Extras extraídos do texto bruto do sub-chunk:** `normas_citadas` (regex sobre artigos, leis, CTN, CF/88, etc.) e `tributos_citados` (keywords: ICMS, IPVA, ITCD, ISS, …).
+- **Texto indexado no denso (`texto`):** versão **enriquecida** (`_build_enriched_text`) com prefixo explícito: tipo de documento, `doc_id`, título, assunto, seção, normas e tributos agregados, seguido do texto. Isto **reforça o sinal semântico** do embedding com o contexto normativo. O **BM25** e o contexto apresentado ao LLM podem usar `texto_bruto` / metadados conforme o fluxo em `rag_core.py`.
+
+### 10.5 Saída e comando
+
+- **Ficheiro gerado:** `data/processed/chunks.json` (lista de objetos com `chunk_id`, `doc_id`, `texto`, `texto_bruto`, `metadados`).
+- **Comando:** `python src/pipeline.py --step ingest` (após `transform`).
