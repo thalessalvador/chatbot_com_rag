@@ -94,13 +94,13 @@ Valores de `docs/dados/recall_por_k.json` (primeira entrada de `runs` — MiniLM
 
 | k | Denso | Esparso | Híbrido | Nota |
 |---|-------|---------|---------|------|
-| 3 | 31,03% (9/29) | 65,52% (19/29) | 62,07% (18/29) | Híbrido **supera** o denso (+31 pontos percentuais); fica **ligeiramente abaixo** do só BM25 (−3,45 p.p.). |
-| 5 | 41,38% (12/29) | 68,97% (20/29) | 72,41% (21/29) | Híbrido **supera** denso e **supera** esparso. |
-| 10 | 41,38% (12/29) | 68,97% (20/29) | 82,76% (24/29) | Híbrido **supera** ambos; denso **estagna** face a k=5 neste conjunto. |
+| 3 | 24,14% (7/29) | 65,52% (19/29) | 55,17% (16/29) | Híbrido **supera** o denso (+31,03 p.p.); fica **abaixo** do só BM25 (−10,35 p.p.). |
+| 5 | 27,59% (8/29) | 72,41% (21/29) | 68,97% (20/29) | Híbrido **supera** o denso (+41,38 p.p.); fica **ligeiramente abaixo** do esparso (−3,44 p.p.). |
+| 10 | 44,83% (13/29) | 75,86% (22/29) | 82,76% (24/29) | Híbrido **supera** ambos; o denso **melhora** face a k=5 neste conjunto. |
 
 **Interpretação:** o **denso MiniLM** é o elo mais fraco neste golden enquanto o **BM25** já traz forte cobertura lexical. O RRF **corrige** parte da lacuna do denso em k=5 e k=10 ao promover documentos que aparecem bem posicionados em **qualquer** uma das listas. 
 
-Com o **BERT legal** no denso (segunda entrada de `runs`), o denso piora em k=3 e k=5; o híbrido continua a **aproveitar** do modelo esparso e aproxima-se do desempenho do MiniLM no mesmo modo em Recall@5 (72,41% — empate), enquanto em Recall@3 o híbrido BERT (68,97%) **já ultrapassa** o esparso (65,52%).
+Com o **BERT legal** no denso (segunda entrada de `runs`), o denso permanece mais fraco que o MiniLM em k=3 e k=5; o híbrido **aproveita** o esparso — em Recall@5 o BERT legal (**72,41%**, 21/29) **supera** o MiniLM (**68,97%**, 20/29); em Recall@3 o híbrido BERT (**58,62%**, 17/29) fica **abaixo** do esparso (**65,52%**, 19/29).
 
 ### 3.5 Interface
 
@@ -115,25 +115,25 @@ Para avaliação do modelo foi construído um script capaz de rodar os modelos e
 python scripts/run_recall_at_k_values.py --k-values 3,5,10
 ```
 
-**MiniLM** (`sentence-transformers/all-MiniLM-L6-v2`): **Recall@k** por modo de recuperação. Valores extraídos de `docs/dados/recall_por_k.json` (primeira entrada de `runs`; `updated_at`: `2026-03-29T03:12:32.329432+00:00`), com **29** perguntas válidas no denominador.
+**MiniLM** (`sentence-transformers/all-MiniLM-L6-v2`): **Recall@k** por modo de recuperação. Valores extraídos de `docs/dados/recall_por_k.json` (primeira entrada de `runs`; `updated_at`: `2026-04-02T16:06:29.615213+00:00`), com **29** perguntas válidas no denominador.
 
 | k | Modo | Recall (%) | acertos/total |
 |---|------|------------|---------------|
-| 3 | Denso | 31,03 | 9/29 |
+| 3 | Denso | 24,14 | 7/29 |
 | 3 | Esparso | 65,52 | 19/29 |
-| 3 | Hibrido | 62,07 | 18/29 |
-| 5 | Denso | 41,38 | 12/29 |
-| 5 | Esparso | 68,97 | 20/29 |
-| 5 | Hibrido | 72,41 | 21/29 |
-| 10 | Denso | 41,38 | 12/29 |
-| 10 | Esparso | 68,97 | 20/29 |
+| 3 | Hibrido | 55,17 | 16/29 |
+| 5 | Denso | 27,59 | 8/29 |
+| 5 | Esparso | 72,41 | 21/29 |
+| 5 | Hibrido | 68,97 | 20/29 |
+| 10 | Denso | 44,83 | 13/29 |
+| 10 | Esparso | 75,86 | 22/29 |
 | 10 | Hibrido | 82,76 | 24/29 |
 
 Resumo **Recall@5** (baseline MiniLM, conforme JSON):
 
-- Modo Denso: **41,38%** (12/29)
-- Modo Esparso: **68,97%** (20/29)
-- Modo Hibrido: **72,41%** (21/29)
+- Modo Denso: **27,59%** (8/29)
+- Modo Esparso: **72,41%** (21/29)
+- Modo Hibrido: **68,97%** (20/29)
 
 ## 5. 2º Teste: Recall 3, 5 e 10 - Motor Bert Jurídico
 
@@ -141,22 +141,22 @@ Comparação **Recall@k**: colunas **MiniLM** e **BERT legal** correspondem, res
 
 | k | Modo | MiniLM — Recall (%) | MiniLM — acertos/total | BERT legal — Recall (%) | BERT legal — acertos/total |
 |---|------|---------------------|------------------------|-------------------------|----------------------------|
-| 3 | Denso | 31,03 | 9/29 | 17,24 | 5/29 |
+| 3 | Denso | 24,14 | 7/29 | 10,34 | 3/29 |
 | 3 | Esparso | 65,52 | 19/29 | 65,52 | 19/29 |
-| 3 | Hibrido | 62,07 | 18/29 | 68,97 | 20/29 |
-| 5 | Denso | 41,38 | 12/29 | 17,24 | 5/29 |
-| 5 | Esparso | 68,97 | 20/29 | 68,97 | 20/29 |
-| 5 | Hibrido | 72,41 | 21/29 | 72,41 | 21/29 |
-| 10 | Denso | 41,38 | 12/29 | 31,03 | 9/29 |
-| 10 | Esparso | 68,97 | 20/29 | 68,97 | 20/29 |
-| 10 | Hibrido | 82,76 | 24/29 | 79,31 | 23/29 |
+| 3 | Hibrido | 55,17 | 16/29 | 58,62 | 17/29 |
+| 5 | Denso | 27,59 | 8/29 | 10,34 | 3/29 |
+| 5 | Esparso | 72,41 | 21/29 | 72,41 | 21/29 |
+| 5 | Hibrido | 68,97 | 20/29 | 72,41 | 21/29 |
+| 10 | Denso | 44,83 | 13/29 | 20,69 | 6/29 |
+| 10 | Esparso | 75,86 | 22/29 | 75,86 | 22/29 |
+| 10 | Hibrido | 82,76 | 24/29 | 82,76 | 24/29 |
 
 Experimento: alteração controlada do modelo de embeddings para `stjiris/bert-large-portuguese-cased-legal-tsdae`.
 
 **Recall@5 (BERT legal), conforme JSON:**
 
-- Denso: **17,24%** (5/29)
-- Esparso: **68,97%** (20/29)
+- Denso: **10,34%** (3/29)
+- Esparso: **72,41%** (21/29)
 - Hibrido: **72,41%** (21/29)
 
 ## 6. Conclusao Técnica
@@ -167,9 +167,9 @@ Experimento: alteração controlada do modelo de embeddings para `stjiris/bert-l
 
 ![Recall@10 — MiniLM vs BERT legal](docs/imagens/recall_k10.png)
 
-Com o golden set atual (**29** casos válidos neste JSON), o embedding jurídico permanece **abaixo** do MiniLM no modo **denso** em todos os **k**: Recall@3 **17,24%** (5/29) vs **31,03%** (9/29); Recall@5 **17,24%** (5/29) vs **41,38%** (12/29); Recall@10 **31,03%** (9/29) vs **41,38%** (12/29). No modo **esparso**, os dois modelos **empatam** em cada **k** (idem acertos/total: 19/29, 20/29 e 20/29, por o BM25 não depender do modelo de embeddings). No modo **híbrido**, Recall@5 é **72,41%** (21/29) para ambos; em Recall@10 o **MiniLM** regista **82,76%** (24/29) e o **BERT legal** **79,31%** (23/29).
+Com o golden set atual (**29** casos válidos neste JSON), o embedding jurídico permanece **abaixo** do MiniLM no modo **denso** em todos os **k**: Recall@3 **10,34%** (3/29) vs **24,14%** (7/29); Recall@5 **10,34%** (3/29) vs **27,59%** (8/29); Recall@10 **20,69%** (6/29) vs **44,83%** (13/29). No modo **esparso**, os dois modelos **empatam** em cada **k** (idem acertos/total: 19/29, 21/29 e 22/29, por o BM25 não depender do modelo de embeddings). No modo **híbrido**, Recall@5 regista **68,97%** (20/29) no MiniLM e **72,41%** (21/29) no BERT legal; em Recall@10 **ambos** atingem **82,76%** (24/29).
 
-Em síntese, com estes números consolidados em `recall_por_k.json`, **não** há ganho do BERT sobre o MiniLM em Recall@5 no híbrido (empate). A **Trilha A** mantém-se justificada porque o **híbrido** supera, em geral, denso e esparso isolados; a escolha do embedding deve equilibrar **custo/tempo** (BERT maior).
+Em síntese, com estes números consolidados em `recall_por_k.json`, o BERT legal **supera** ligeiramente o MiniLM em Recall@5 no híbrido (**72,41%** vs **68,97%**). A **Trilha A** mantém-se justificada porque o **híbrido** supera, em geral, denso e esparso isolados; a escolha do embedding deve equilibrar **custo/tempo** (BERT maior).
 
 ## 7. Analise por rubrica qualitativa
 
@@ -245,9 +245,9 @@ Com base **somente** nas anotações de `rubrica_qualitativa.xlsx` (raiz do proj
 
 2. **Robustez quando o embedding denso desvia** — No caso **caminhonete / veículo utilitário**, o avaliador registra que o **denso** recuperou trechos **fora do tema** (ainda no “universo” tributário, mas irrelevantes). O **BM25** manteve **quatro** chunks do parecer esperado no topo, com **menos dispersão semântica** para esta formulação da pergunta. Isso acontece pois o modo denso buscava sinônimos ou termos semelhantes estatisticamente, enquanto o esparso busca por relevância. 
 
-3. **Consistência com a métrica automática** — O **Recall@5** esparso (**68,97%**, 20/29) já indicava vantagem sobre o denso (**41,38%**, 12/29) no mesmo golden; a rubrica **confirma qualitativamente** que, em perguntas **ancoradas no léxico** dos pareceres de Goiás, o **esparso é frequentemente o modo mais seguro** quando o utilizador não reformula a pergunta em linguagem “próxima” do espaço semântico do modelo de embeddings.
+3. **Consistência com a métrica automática** — O **Recall@5** esparso (**72,41%**, 21/29) já indicava vantagem sobre o denso (**27,59%**, 8/29) no mesmo golden; a rubrica **confirma qualitativamente** que, em perguntas **ancoradas no léxico** dos pareceres de Goiás, o **esparso é frequentemente o modo mais seguro** quando o utilizador não reformula a pergunta em linguagem “próxima” do espaço semântico do modelo de embeddings.
 
-4. **Ressalva obrigatória: temas fora do corpus** — Na pergunta **ANVISA**, o **BM25** obteve **piores** notas em todos os critérios e **alucinação** explícita na rubrica; o **denso** foi o único a **recusar** corretamente. Logo, a “melhor escolha” do BM25 **não é universal**: para **consultas claramente ausentes** do acervo, o relatório recomenda **priorizar o modo denso** (ou políticas de recusa no LLM). Outras estratégias podem ser adotadas para melhor refino das respostas, como por exemplo a duplicação do prompt antes da LLM enviar a resposta para o usuário: garante assim que mesmo passando no primeiro filtro, a resposta final garanta o tratamento para temas fora do corpus.
+4. **Ressalva obrigatória: temas fora do corpus** — Inicialmente rodamos os testes com ambos os modelos apenas com **engenharia de prompt** com **few-shot prompting**. Essa abordagem não estava tratando totalmente os temas fora do corpus, gerando alucinação e respostas corretas mas fora do contexto restrito dos documentos. Dessa forma fizemos um **loop** que verifica a resposta da gerada pela LLM e reavalia, tendo em vista a pergunta inicial (*LLM as judge*)
 
 Em síntese, para o **domínio deste chatbot** (pareceres tributários GO com perguntas ricas em **nomes de institutos, normas e fatos concretos**), a rubrica qualitativa **reforça o BM25** como **baseline forte** frente ao denso isolado, **coerente** com o Recall quantitativo, com a **exceção documentada** de perguntas **sem suporte no corpus**, onde o **denso** foi superior na **recusa**.
 
