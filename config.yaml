@@ -10,7 +10,7 @@ llm:
   ollama_num_predict: 2048
   ollama_num_gpu: 9999
   ollama_num_thread: 0
-  ollama_keep_alive: 5m
+  ollama_keep_alive: 30m
   # Segundos por pedido ao servidor Ollama (httpx); evita espera indefinida se travar. 0 = sem limite explícito.
   ollama_client_timeout_seconds: 600
 
