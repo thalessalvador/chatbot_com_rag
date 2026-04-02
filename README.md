@@ -7,6 +7,8 @@ Projeto de consulta a pareceres tributarios com pipeline completo de:
 - indexacao hibrida (Dense + BM25 + RRF);
 - interface de chat com Streamlit.
 
+Relatorio de validacao, metricas Recall@k, experimentos de embedding e rubrica qualitativa (PR5–PR7): **[RELATORIO_PR7.md](RELATORIO_PR7.md)**.
+
 ## Requisitos
 - Python 3.11
 - Ollama instalado (para provider local)
@@ -14,6 +16,7 @@ Projeto de consulta a pareceres tributarios com pipeline completo de:
 
 ## Estrutura
 ```text
+RELATORIO_PR7.md
 app/app.py
 src/pipeline.py
 src/rag_core.py
@@ -189,6 +192,27 @@ No Streamlit, o usuario tambem pode escolher provider/modelo na sidebar.
 - Embeddings usam `embeddings.device` (`cpu` ou `cuda`).
 - Ollama usa parametros `llm.ollama_*` (incluindo `ollama_num_gpu` e `ollama_num_thread`).
 - BM25/tokenizacao e partes de preprocessing rodam em CPU (esperado).
+
+### Streamlit com Ollama: VRAM e concorrencia
+
+Ao rodar `streamlit run app/app.py` com **`llm.provider: ollama`**, o **SentenceTransformer** (embeddings na consulta) e o **servidor Ollama** podem disputar a **mesma GPU** e a **VRAM** ao mesmo tempo. Isso pode deixar a geracao muito lenta ou parecer “travada”, sobretudo em placas com pouca memoria (ex.: 8 GB).
+
+**Recomendacao pratica (escolha uma abordagem ou combine com testes):**
+
+1. **Embeddings em CPU durante o uso do chat (mais simples)**  
+   Antes de subir o Streamlit, em `config.yaml`, defina:
+   ```yaml
+   embeddings:
+     device: cpu
+   ```
+   A indexacao (`--step index`) pode continuar a usar `cuda` se desejares (alteras para `cpu` so na hora de testar o chat, ou mantens `cpu` sempre que priorizares o Ollama na GPU). O encode de **uma pergunta** por vez na CPU costuma ser aceitavel e **liberta VRAM** para o modelo do Ollama.  
+   **Importante:** apos mudar `embeddings.model` ou `device` para alinhar com o indice, reinicie o Streamlit e use *Clear cache* se necessario (ver secao de cache na documentacao do projeto).
+
+2. **Ajustar `llm.ollama_num_gpu` para melhor reparticao**  
+   Em `config.yaml -> llm`, o parametro `ollama_num_gpu` e repassado ao Ollama (camadas/GPUs usadas no backend). Em **maquinas com varias GPUs**, ajuste para a quantidade adequada ao teu hardware e a forma como queres isolar Ollama vs. PyTorch (tambem podes usar `CUDA_VISIBLE_DEVICES` no ambiente do Ollama ou do Python, conforme o teu cenario).  
+   Em **uma unica GPU**, valores muito altos (ex.: `9999`) pedem o maximo de offload para a GPU; se a VRAM enche com o modelo de embeddings ainda em `cuda`, reduzir `ollama_num_gpu` pode fazer parte das camadas do LLM correr em CPU, **libertando VRAM** — ao custo de velocidade no Ollama. Experimenta valores intermediarios conforme o modelo e a placa.
+
+**Resumo:** com Ollama local, a opcao mais estavel em GPUs com pouca VRAM e, em geral, **`embeddings.device: cpu`** no momento de usar o Streamlit; alternativamente (ou em paralelo), **afina `ollama_num_gpu`** e o ambiente CUDA para equilibrar os dois cargos.
 
 ## Logging
 
