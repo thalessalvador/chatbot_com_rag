@@ -1,4 +1,4 @@
-import streamlit as st
+﻿import streamlit as st
 import sys
 import os
 from dotenv import load_dotenv
@@ -166,12 +166,12 @@ if prompt := st.chat_input("Digite sua pergunta sobre tributação..."):
         else:
             try:
                 retrieval_top_k = _get_int_env("RETRIEVAL_TOP_K", 5)
-                with st.spinner("A recuperar trechos nos pareceres…"):
+                with st.spinner("Recuperando trechos nos pareceres…"):
                     retrieved_chunks = rag.retrieve(
                         prompt, top_k=retrieval_top_k, mode=modo_escolhido
                     )
                 _llm_hint = (
-                    "A gerar resposta com o LLM"
+                    "Gerando resposta com o LLM"
                     + (" (Ollama local: pode levar 1–3 min com prompt grande)…"
                        if llm_provider == "ollama"
                        else "…")
