@@ -1,6 +1,7 @@
 ﻿import streamlit as st
 import sys
 import os
+import unicodedata
 from dotenv import load_dotenv
 
 # Adiciona o diretório raiz ao path para importar src
@@ -18,11 +19,26 @@ NO_CONTEXT_RESPONSE = str(
 
 
 def _is_no_context_response(answer_text):
-    """Indica se a resposta corresponde ao fallback de ausência de contexto."""
+    """Indica se a resposta corresponde ao fallback de aus?ncia de contexto."""
     if not answer_text:
         return False
-    return answer_text.strip().strip('"').strip() == NO_CONTEXT_RESPONSE
+    normalized = answer_text.strip().strip('"').strip()
+    normalized_lower = normalized.lower()
+    normalized_ascii = unicodedata.normalize("NFKD", normalized_lower).encode("ascii", "ignore").decode("ascii")
 
+    configured_lower = NO_CONTEXT_RESPONSE.strip().strip('"').strip().lower()
+    configured_ascii = unicodedata.normalize("NFKD", configured_lower).encode("ascii", "ignore").decode("ascii")
+
+    if normalized_lower == configured_lower or normalized_ascii == configured_ascii:
+        return True
+
+    no_context_markers = [
+        "nao encontrei informacoes na base de conhecimento",
+        "n?o encontrei informa??es na base de conhecimento",
+        "nao ha informacoes relevantes nos documentos disponiveis",
+        "n?o h? informa??es relevantes nos documentos dispon?veis",
+    ]
+    return any(marker in normalized_lower or marker in normalized_ascii for marker in no_context_markers)
 
 def _get_int_env(var_name, default_value):
     """Lê uma variável de ambiente inteira com fallback seguro.

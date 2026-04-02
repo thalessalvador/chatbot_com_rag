@@ -2,6 +2,7 @@
 import logging
 import pickle
 import os
+import unicodedata
 
 # Desativa telemetria do Chroma de forma explícita para evitar logs de PostHog.
 os.environ.setdefault("ANONYMIZED_TELEMETRY", "FALSE")
@@ -46,12 +47,26 @@ def _extract_response_text(response):
 
 
 def _is_no_context_response(answer_text):
-    """Valida se a resposta retornada é a resposta padrão de ausência de contexto."""
+    """Valida se a resposta retornada ? a resposta padr?o de aus?ncia de contexto."""
     if not answer_text:
         return False
     normalized = answer_text.strip().strip('"').strip()
-    return normalized == NO_CONTEXT_RESPONSE
+    normalized_lower = normalized.lower()
+    normalized_ascii = unicodedata.normalize("NFKD", normalized_lower).encode("ascii", "ignore").decode("ascii")
 
+    configured_lower = NO_CONTEXT_RESPONSE.strip().strip('"').strip().lower()
+    configured_ascii = unicodedata.normalize("NFKD", configured_lower).encode("ascii", "ignore").decode("ascii")
+
+    if normalized_lower == configured_lower or normalized_ascii == configured_ascii:
+        return True
+
+    no_context_markers = [
+        "nao encontrei informacoes na base de conhecimento",
+        "n?o encontrei informa??es na base de conhecimento",
+        "nao ha informacoes relevantes nos documentos disponiveis",
+        "n?o h? informa??es relevantes nos documentos dispon?veis",
+    ]
+    return any(marker in normalized_lower or marker in normalized_ascii for marker in no_context_markers)
 
 def _build_trecho_alias_entries(retrieved_chunks):
     """Cria aliases curtos (TRECHO_n) para os chunks recuperados."""
@@ -93,13 +108,41 @@ def _build_trechos_disponiveis(alias_entries, preview_chars=280):
     return "\n".join(lines)
 
 
+def _build_fontes_disponiveis(alias_entries):
+    """Monta bloco resumido das fontes disponíveis para o prompt de correção.
+
+    Parameters
+    ----------
+    alias_entries : list[dict]
+        Lista de aliases dos trechos recuperados com título, fonte e `chunk_id`.
+
+    Returns
+    -------
+    str
+        Texto consolidado com uma linha por fonte disponível.
+    """
+    lines = []
+    for entry in alias_entries:
+        lines.append(
+            f"- [[{entry['alias']}]] | titulo={entry['titulo']} | fonte={entry['fonte'] or 'N/A'} | chunk_id={entry['chunk_id']}"
+        )
+    return "\n".join(lines)
+
+
 def _has_trecho_alias_citation(answer_text):
-    """Indica se o texto contém pelo menos uma citação no formato [[TRECHO_n]]."""
-    return bool(re.search(r"\[\[TRECHO_\d+\]\]", answer_text or ""))
+    """Indica se o texto contém ao menos um alias `TRECHO_n`, com ou sem colchetes."""
+    return bool(re.search(r"(?<!\w)(?:\[\[)?TRECHO_\d+(?:\]\])?(?!\w)", answer_text or ""))
 
 
 def _convert_trecho_aliases_to_html(answer_text, alias_entries):
-    """Converte [[TRECHO_n]] para citação com link HTML e chunk_id."""
+    """Converte aliases `TRECHO_n` para citação com link HTML e chunk_id.
+
+    Aceita:
+    - `[[TRECHO_n]]`
+    - `TRECHO_n`
+
+    Não tenta converter formas livres como `Trecho 5`.
+    """
     if not answer_text:
         return answer_text
 
@@ -119,7 +162,8 @@ def _convert_trecho_aliases_to_html(answer_text, alias_entries):
             )
         return f"[{titulo} {chunk_id}]"
 
-    return re.sub(r"\[\[(TRECHO_\d+)\]\]", _replace, answer_text)
+    converted = re.sub(r"\[\[(TRECHO_\d+)\]\]", _replace, answer_text)
+    return re.sub(r"(?<!\w)(TRECHO_\d+)(?!\w)", _replace, converted)
 
 
 def _append_fallback_sources(answer_text, alias_entries):
@@ -829,6 +873,7 @@ class HybridRAG:
 
         alias_entries = _build_trecho_alias_entries(retrieved_chunks)
         context_str = _build_context_with_trecho_aliases(alias_entries)
+        fontes_disponiveis = _build_fontes_disponiveis(alias_entries)
         trechos_disponiveis = _build_trechos_disponiveis(alias_entries)
 
         _log_llm_request(query, retrieved_chunks, context_str)
@@ -836,21 +881,37 @@ class HybridRAG:
 
         prompt_template = PromptTemplate(
             input_variables=["contexto", "pergunta", "resposta_sem_contexto"],
-            template="""Assistente tributário (Goiás). Responda só com base nos TRECHOS. Idioma: pt-BR.
+            template="""Você é um assistente tributário do Estado de Goiás.
+Sua tarefa é responder à pergunta do utilizador APENAS com base no contexto fornecido.
 
-Regras:
-- Sem informação nos trechos → responda exatamente: {resposta_sem_contexto}
-- Não use conhecimento externo. Sem LaTeX/MathJax. Seja objetivo.
-- Cada afirmação sustentada termina com [[TRECHO_n]] (n = índice do trecho).
-- Responda sempre em Português do Brasil (pt-br)
-Saída:
-- Resposta direta: 1–2 parágrafos.
-- Base legal: até 4 parágrafos com norma e [[TRECHO_n]].
+REGRAS OBRIGATÓRIAS:
+1. GROUNDING: Se a resposta não estiver no contexto, responda EXATAMENTE: "{resposta_sem_contexto}"
+2. NÃO INVENTE: Não use conhecimentos externos à base fornecida. O foco não é aconselhamento jurídico genérico.
+3. IDIOMA: Responda sempre em Português do Brasil (pt-BR).
+4. FORMATAÇÃO: Não use LaTeX, MathJax, Markdown matemático nem expressões como \text{{...}}.
+5. CONCISÃO: Seja objetivo.
+6. Sempre responda levando em conta que a pergunta se aplica ao estado de Goiás.
 
-TRECHOS:
+FORMATO OBRIGATÓRIO DE SAÍDA:
+- Resposta direta: 1 a 2 parágrafos.
+- Base legal: 1 a 4 parágrafos com referência normativa.
+- CITAÇÕES: Sempre que afirmar algo, cite no final da frase usando APENAS o alias do trecho.
+  Formato exato obrigatório: [[TRECHO_n]]
+  Exemplo: "O ICMS é isento neste caso [[TRECHO_2]]."
+
+EXEMPLO DE RESPOSTA CORRETA:
+- Resposta direta: O contribuinte goiano tem isenção de ICMS na saída de frutas frescas [[TRECHO_1]].
+- Base legal: Conforme o Artigo 7º do RCTE-GO [[TRECHO_2]].
+
+CONTEXTO RECUPERADO:
 {contexto}
 
 PERGUNTA: {pergunta}
+
+LEMBRETE OBRIGATÓRIO ANTES DE RESPONDER:
+- Você deve citar o alias [[TRECHO_n]] ao final de cada raciocínio relevante.
+- Se a resposta não estiver no contexto, responda EXATAMENTE: "{resposta_sem_contexto}". Não use conhecimentos externos à base fornecida. O foco não é aconselhamento jurídico genérico.
+- Responda sempre em Português do Brasil (pt-BR) e leve em conta que a pergunta se aplica ao estado de Goiás.
 
 RESPOSTA:""",
         )
@@ -879,13 +940,31 @@ RESPOSTA:""",
         if not _has_trecho_alias_citation(raw_answer):
             logger.info("Resposta sem aliases [[TRECHO_n]] na primeira passada. Iniciando prompt de correção.")
             fix_prompt_template = PromptTemplate(
-                input_variables=["pergunta", "trechos", "resposta_original"],
-                template="""Revise a RESPOSTA ORIGINAL: acrescente [[TRECHO_n]] no fim das frases apoiadas nos trechos; remova frases sem evidência. Não invente conteúdo. pt-BR. Devolva só a resposta final.
+                input_variables=["pergunta", "fontes", "trechos", "resposta_original"],
+                template="""Você é um assistente tributário do Estado de Goiás.
+Sua única tarefa é revisar a RESPOSTA ORIGINAL e inserir os identificadores [[TRECHO_n]] onde houver suporte nos documentos fornecidos.
+Se uma frase não tiver evidência nos trechos, remova-a completamente.
+Não altere o texto além de adicionar as etiquetas [[TRECHO_n]] ou remover frases órfãs.
 
-TRECHOS (resumo):
+Regras obrigatórias:
+1. Não invente informação nova e não use conhecimento externo.
+2. Use somente as fontes listadas em FONTES DISPONÍVEIS.
+3. Use apenas os TRECHOS DISPONÍVEIS para validar as afirmações.
+4. Inclua citação no formato [[TRECHO_n]] ao final de cada raciocínio relevante.
+5. Retorne apenas a resposta final.
+
+Formato obrigatório desta saída:
+- Resposta direta: O contribuinte goiano tem isenção de ICMS na saída de frutas frescas [[TRECHO_1]].
+- Base legal: Conforme o Artigo 7º do RCTE-GO [[TRECHO_2]].
+
+PERGUNTA:
+{pergunta}
+
+FONTES DISPONÍVEIS:
+{fontes}
+
+TRECHOS DISPONÍVEIS:
 {trechos}
-
-PERGUNTA: {pergunta}
 
 RESPOSTA ORIGINAL:
 {resposta_original}
@@ -894,6 +973,7 @@ RESPOSTA FINAL:""",
             )
             fix_prompt = fix_prompt_template.format(
                 pergunta=query,
+                fontes=fontes_disponiveis,
                 trechos=trechos_disponiveis,
                 resposta_original=raw_answer,
             )
